@@ -8,6 +8,7 @@ These are the deep-dive reports behind [FEASIBILITY.md](../FEASIBILITY.md) and [
 | [02-hyprland-aquamarine.md](02-hyprland-aquamarine.md) | aquamarine backends and allocators, the Hyprland renderer's DRM/GBM/dmabuf requirements, exact failure points, patch options (a)–(e) with LOC estimates |
 | [03-wsl-wslg-mesa.md](03-wsl-wslg-mesa.md) | WSLg frame path and knobs, WSL packaging and config, hvsocket and DAX shared memory, Mesa d3d12/dzn on WSL, dxgkrnl sharing, kernel DRM removal |
 | [04-prior-art-architectures.md](04-prior-art-architectures.md) | Prior art, streaming stacks, Win-key capture, compositors without DRM, architecture comparison with estimates |
+| [06-zero-copy-gpu-buffers.md](06-zero-copy-gpu-buffers.md) | 2026-11-10: built-in vgem render node, GBM/dmabuf through d3d12 across processes, Vulkan↔GL interop, what Hyprland/aquamarine need for zero-copy clients |
 
 ## Corrections from lab verification
 

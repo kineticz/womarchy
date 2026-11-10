@@ -1,0 +1,55 @@
+From 3c892bcd96f60b2cb2451d7449f7339efbe29648 Mon Sep 17 00:00:00 2001
+From: womarchy <womarchy@users.noreply.github.com>
+Date: Tue, 10 Nov 2026 13:51:02 +0100
+Subject: [PATCH 4/4] d3d12: don't use an uninitialized pointer when a memobj
+ import fails
+
+d3d12_memobj_create_from_handle() left obj uninitialized and ignored the
+HRESULT of OpenSharedHandle(), so a handle the runtime rejects (e.g. a
+closed or wrong fd on WSL) made it QueryInterface through a garbage
+pointer and crash inside glImportMemoryFdEXT. Initialize it, check the
+result and log the failure.
+
+Generated-by: LLM
+---
+ src/gallium/drivers/d3d12/d3d12_resource.cpp | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/src/gallium/drivers/d3d12/d3d12_resource.cpp b/src/gallium/drivers/d3d12/d3d12_resource.cpp
+index c1cab24..c31b90f 100644
+--- a/src/gallium/drivers/d3d12/d3d12_resource.cpp
++++ b/src/gallium/drivers/d3d12/d3d12_resource.cpp
+@@ -1063,7 +1063,7 @@ d3d12_memobj_create_from_handle(struct pipe_screen *pscreen, struct winsys_handl
+ #else
+    IUnknown
+ #endif
+-      *obj;
++      *obj = nullptr;
+ #ifdef _WIN32
+       HANDLE d3d_handle = handle->handle;
+ #else
+@@ -1078,7 +1078,7 @@ d3d12_memobj_create_from_handle(struct pipe_screen *pscreen, struct winsys_handl
+       }
+ #endif
+ 
+-   screen->dev->OpenSharedHandle(d3d_handle, IID_PPV_ARGS(&obj));
++   HRESULT open_hr = screen->dev->OpenSharedHandle(d3d_handle, IID_PPV_ARGS(&obj));
+ 
+ #ifdef _WIN32
+    if (d3d_handle_to_close) {
+@@ -1086,8 +1086,10 @@ d3d12_memobj_create_from_handle(struct pipe_screen *pscreen, struct winsys_handl
+    }
+ #endif
+ 
+-   if (!obj) {
+-      debug_printf("d3d12: Failed to open memobj handle as anything\n");
++   if (FAILED(open_hr) || !obj) {
++      mesa_loge("d3d12: Failed to open memobj handle %p as anything (hr 0x%x)",
++                (void *)d3d_handle, (unsigned)open_hr);
++      obj = nullptr;
+       return NULL;
+    }
+ 
+-- 
+2.56.0
+

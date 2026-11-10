@@ -21,6 +21,8 @@ Arch packages.
 | **Mesa** (26.2.3) | | |
 | [0001](mesa/0001-d3d12-reclaim-outside-pb-manager-locks.patch) d3d12: reclaim outside pb manager locks | Fixes a self-deadlock on the first text texture upload. | — |
 | [0002](mesa/0002-d3d12-write-back-upload-heaps-on-wsl.patch) d3d12: write-back upload heaps on WSL | CPU writes to write-combine heaps run at ~9 MB/s on WSL 3.0.1; texture uploads were 500x slower. `D3D12_UPLOAD_WRITE_BACK=0` turns it off. | — |
+| [0003](mesa/0003-glapi-expose-EXT_external_objects-entry-points-on-Op.patch) glapi: external objects on GLES 3.0 | `GL_EXT_memory_object(_fd)`/`semaphore(_fd)` were advertised on ES 3.0 but dispatched only from ES 3.2, so d3d12 (ES 3.0) couldn't import Vulkan/dzn buffers. Not yet in the package; see [research 06](../docs/research/06-zero-copy-gpu-buffers.md). | — |
+| [0004](mesa/0004-d3d12-don-t-use-an-uninitialized-pointer-when-a-memo.patch) d3d12: failed memobj import | Uninitialized pointer crash when `OpenSharedHandle` rejects a handle. Not yet in the package. | — |
 
 The Mesa patches are labelled `Generated-by: LLM`, as Mesa's contribution rules require for
 AI-generated code.
