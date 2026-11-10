@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kaiyin Zhong <kaiyin@zhong.science>
+Date: Tue, 10 Nov 2026 14:31:58 +0100
+Subject: [PATCH] backend: wsl offers the vgem render node to clients
+ (WOMARCHY_DMABUF=1)
+
+Newer WSL kernels have vgem built in. GBM/EGL on its render node run on the GPU
+through Mesa's d3d12 driver and the buffers' fds import in other processes, so
+clients can share GPU buffers over linux-dmabuf instead of reading frames back
+into wl_shm. Only drmRenderNodeFD() is set: output buffers keep the shm allocator.
+---
+ include/aquamarine/backend/Wsl.hpp |  3 +++
+ src/backend/Wsl.cpp                | 32 +++++++++++++++++++++++++++++-
+ 2 files changed, 34 insertions(+), 1 deletion(-)
+
+diff --git a/include/aquamarine/backend/Wsl.hpp b/include/aquamarine/backend/Wsl.hpp
+index 64b9e59..e2758f4 100644
+--- a/include/aquamarine/backend/Wsl.hpp
++++ b/include/aquamarine/backend/Wsl.hpp
+@@ -174,6 +174,9 @@ namespace Aquamarine {
+         Hyprutils::Memory::CSharedPointer<std::function<void()>>      announce;
+ 
+         Hyprutils::OS::CFileDescriptor                                listenFD, pendingFD, clientFD, timerFD;
++        // GPU render node for clients (vgem built into newer WSL kernels; see openRenderNode)
++        Hyprutils::OS::CFileDescriptor                                renderNodeFD;
++        void                                                          openRenderNode();
+         std::vector<uint8_t>                                          pendingRx, rxBuffer, txBuffer;
+         uint64_t                                                      pendingGeneration = 0;
+         uint32_t                                                      transport         = 0;
+diff --git a/src/backend/Wsl.cpp b/src/backend/Wsl.cpp
+index 56bb0c2..a6b4569 100644
+--- a/src/backend/Wsl.cpp
++++ b/src/backend/Wsl.cpp
+@@ -21,6 +21,7 @@
+ #include <sys/timerfd.h>
+ #include <sys/un.h>
+ #include <unistd.h>
++#include <xf86drm.h>
+ 
+ using namespace Aquamarine;
+ using namespace Hyprutils::Memory;
+@@ -408,6 +409,7 @@ bool Aquamarine::CWslBackend::start() {
+         initialMonitors.push_back(SMonitorSpec{.id = 1, .name = "default"});
+ 
+     allocator = CShmAllocator::create(aq.lock(), shmDir, "womarchy");
++    openRenderNode();
+ 
+     timerFD = Hyprutils::OS::CFileDescriptor{timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC | TFD_NONBLOCK)};
+     if (!timerFD.isValid()) {
+@@ -1094,7 +1096,35 @@ int Aquamarine::CWslBackend::drmFD() {
+ }
+ 
+ int Aquamarine::CWslBackend::drmRenderNodeFD() {
+-    return -1;
++    return renderNodeFD.isValid() ? renderNodeFD.get() : -1;
++}
++
++// Newer WSL kernels (6.18.54.1+) have vgem built in. GBM/EGL on its render node run on the GPU through
++// Mesa's d3d12 driver, and the buffers' fds (dxgkrnl shared resources) import in other processes, so
++// clients can hand GPU buffers over with linux-dmabuf instead of reading frames back into wl_shm.
++// Only the render node is offered: drmFD() stays -1, so output buffers keep the shm allocator.
++// Opt-in for now: WOMARCHY_DMABUF=1 (WOMARCHY_RENDER_NODE overrides the path).
++void Aquamarine::CWslBackend::openRenderNode() {
++    if (!envEnabled("WOMARCHY_DMABUF"))
++        return;
++
++    const std::string PATH = envOr("WOMARCHY_RENDER_NODE", "/dev/dri/renderD128");
++    Hyprutils::OS::CFileDescriptor fd{open(PATH.c_str(), O_RDWR | O_CLOEXEC)};
++    if (!fd.isValid()) {
++        aq->log(AQ_LOG_WARNING, std::format("wsl: dmabuf: cannot open {}: {}; clients use shm", PATH, strerror(errno)));
++        return;
++    }
++
++    drmVersionPtr ver = drmGetVersion(fd.get());
++    if (!ver) {
++        aq->log(AQ_LOG_WARNING, std::format("wsl: dmabuf: {} is not a DRM device; clients use shm", PATH));
++        return;
++    }
++    const std::string DRIVER = ver->name ? ver->name : "";
++    drmFreeVersion(ver);
++
++    aq->log(AQ_LOG_DEBUG, std::format("wsl: dmabuf: using render node {} (driver {})", PATH, DRIVER));
++    renderNodeFD = std::move(fd);
+ }
+ 
+ bool Aquamarine::CWslBackend::dispatchEvents() {

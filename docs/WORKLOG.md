@@ -749,3 +749,9 @@ Decision: no default change. TROUBLESHOOTING documents the X11 opt-in for WebGL-
 - **Real cause:** Windows energy mode "Best power efficiency" (overlay `961cc777…`, battery at 21%). With "Best performance": GL ~57 FPS (the rest is the first-frame shader compile), Cairo ~59.5 FPS, **p95 17.0 ms**; 1080p readback 1.5 ms, upload 1.6 ms. Worth a TROUBLESHOOTING entry: every hop in the frame chain waits on the previous one, so down-clocking between hops costs whole vblanks.
 - **Zero-copy:** WSL kernel 6.18.54.1 has DRM and vgem built in; GBM/EGL on `/dev/dri/renderD128` run on d3d12 and their `dxgresource` fds import in other processes with the standard dmabuf APIs, correctly ordered without fences (1,200/1,200 frames). Vulkan↔GLES interop needs new Mesa patches 0003/0004 (not yet packaged). Shared fences across processes fail on WSL. Details and next steps: [research 06](research/06-zero-copy-gpu-buffers.md).
 - AI-assisted.
+
+### Follow-up: zero-copy in the desktop session
+
+- Hyprland/aquamarine with linux-dmabuf on the vgem render node run the everyday session (opt-in, home-directory build; [research 06](research/06-zero-copy-gpu-buffers.md)). New patches: aquamarine 0004, Hyprland 0007 (not yet packaged).
+- Measured: GTK GL client CPU halves (12% → 6%), Hyprland 17% → 14% at the same 60 FPS; Edge gets GPU compositing, WebGL and WebGPU (WebGL renders, where it was blank before); glxgears 20 → 50 FPS.
+- Pitfalls found on the way: EGL device platform can't initialise vgem (use GBM); linux-dmabuf's PRIME check rejects dxgkrnl fds; Mesa's Wayland loader needs `MESA_LOADER_DRIVER_OVERRIDE=kms_swrast`; GLX over Xwayland's new DRI3 falls back to a crashing zink unless `LIBGL_KOPPER_DISABLE=1`.

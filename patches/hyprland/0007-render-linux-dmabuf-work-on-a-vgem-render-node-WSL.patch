@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kaiyin Zhong <kaiyin@zhong.science>
+Date: Tue, 10 Nov 2026 14:31:59 +0100
+Subject: [PATCH] render, linux-dmabuf: work on a vgem render node (WSL)
+
+vgem fronts Mesa's d3d12 driver through kms_swrast: use the GBM platform rather
+than the EGL device platform (which can't initialise on it), and skip the PRIME
+import check for client buffers, which are dxgkrnl shared-resource fds that EGL
+imports but vgem's PRIME rejects.
+---
+ src/protocols/LinuxDMABUF.cpp | 14 +++++++++++++-
+ src/render/OpenGL.cpp         | 13 +++++++++++++
+ 2 files changed, 26 insertions(+), 1 deletion(-)
+
+diff --git a/src/protocols/LinuxDMABUF.cpp b/src/protocols/LinuxDMABUF.cpp
+index 897c98d..291e292 100644
+--- a/src/protocols/LinuxDMABUF.cpp
++++ b/src/protocols/LinuxDMABUF.cpp
+@@ -260,8 +260,20 @@ void CLinuxDMABUFParamsResource::create(uint32_t id) {
+     m_createdBuffer = buf;
+ }
+ 
++// vgem (built into newer WSL kernels) fronts Mesa's d3d12 driver: client buffers are dxgkrnl shared-resource
++// fds, which EGL imports fine but vgem's PRIME import rejects (they aren't real dma-bufs). Skip that check
++// there; a buffer that can't be used still fails in the EGL import.
++static bool isVirtualGEM(int drmFD) {
++    drmVersion* ver = drmGetVersion(drmFD);
++    if (!ver)
++        return false;
++    const bool VGEM = ver->name && std::string_view{ver->name} == "vgem";
++    drmFreeVersion(ver);
++    return VGEM;
++}
++
+ bool CLinuxDMABUFParamsResource::commence() {
+-    if (!PROTO::linuxDma->m_mainDeviceFD.isValid())
++    if (!PROTO::linuxDma->m_mainDeviceFD.isValid() || isVirtualGEM(PROTO::linuxDma->m_mainDeviceFD.get()))
+         return true;
+ 
+     for (int i = 0; i < m_attrs->planes; i++) {
+diff --git a/src/render/OpenGL.cpp b/src/render/OpenGL.cpp
+index bc50fb8..820bf0a 100644
+--- a/src/render/OpenGL.cpp
++++ b/src/render/OpenGL.cpp
+@@ -250,6 +250,15 @@ static bool drmDeviceHasName(const drmDevice* device, const std::string& name) {
+     return false;
+ }
+ 
++static bool isVirtualGEM(int drmFD) {
++    drmVersion* ver = drmGetVersion(drmFD);
++    if (!ver)
++        return false;
++    const bool VGEM = ver->name && std::string_view{ver->name} == "vgem";
++    drmFreeVersion(ver);
++    return VGEM;
++}
++
+ EGLDeviceEXT CHyprOpenGLImpl::eglDeviceFromDRMFD(int drmFD) {
+     EGLint nDevices = 0;
+     if (!m_proc.eglQueryDevicesEXT(0, nullptr, &nDevices)) {
+@@ -345,6 +354,10 @@ CHyprOpenGLImpl::CHyprOpenGLImpl() : m_drmFD(g_pCompositor->m_drmRenderNode.fd >
+         Log::logger->log(Log::DEBUG, "EGL: no DRM device, using the surfaceless platform");
+         success = true;
+         initEGL(EGL_PLATFORM_KIND_SURFACELESS);
++    } else if (isVirtualGEM(m_drmFD)) {
++        // vgem (built into newer WSL kernels) has no GPU of its own: Mesa runs the real driver (d3d12) through
++        // kms_swrast, which works on the GBM platform but not on the EGL device platform. Use GBM directly.
++        Log::logger->log(Log::DEBUG, "EGL: DRM node is vgem, using the gbm platform");
+     } else if (EGLEXTENSIONS.contains("EXT_platform_device") || !m_proc.eglQueryDevicesEXT || !m_proc.eglQueryDeviceStringEXT) {
+         m_eglDevice = eglDeviceFromDRMFD(m_drmFD);
+ 

@@ -67,3 +67,35 @@ What has to change:
 Risks to test before making it the default: ordering on other GPUs (NVIDIA with hardware scheduling,
 AMD; finding 3 was measured on Iris Xe only), buffer lifetime/release, memory budget with many windows,
 Xwayland (glamor on the render node), screen capture, and apps that probe `/dev/dri/card0`.
+
+## Result in the owner's desktop session (2026-11-10, later the same day)
+
+Built aquamarine + Hyprland with [aquamarine 0004](../../patches/aquamarine/0004-backend-wsl-offers-the-vgem-render-node-to-clients-W.patch)
+and [Hyprland 0007](../../patches/hyprland/0007-render-linux-dmabuf-work-on-a-vgem-render-node-WSL.patch) into a home-directory prefix
+and ran the everyday session on it (user `hyprland.desktop` override + `~/.config/uwsm/env.d/20-womarchy-dmabuf`).
+
+What was needed beyond the plan above:
+- **Hyprland:** the EGL *device* platform finds an EGLDevice for vgem but can't initialise it; use GBM on vgem.
+  linux-dmabuf's `commence()` PRIME-imports every client fd on the main device, which vgem rejects for
+  dxgkrnl fds; skip it on vgem (the EGL import still validates the buffer).
+- **Clients:** Mesa's Wayland/X11 loaders look for a driver named after the device (`vgem`) and fall back to
+  wl_shm. `MESA_LOADER_DRIVER_OVERRIDE=kms_swrast` makes them run `GALLIUM_DRIVER` (d3d12) on the node.
+  GBM users (Chromium/Edge) don't need it.
+- **X11 GL apps:** Xwayland now has glamor on the node and offers DRI3. GLX can't load kms_swrast through DRI3
+  and falls back to zink (Vulkan over dzn), which segfaults (`glxinfo`). `LIBGL_KOPPER_DISABLE=1` stops the
+  zink fallback; GLX then uses its software winsys with d3d12, as before. EGL on X11 is fine.
+
+Measured in the session (performance power mode, 60 Hz):
+- Animated GTK4 window, 1800x1000, GL renderer, A/B per client in the same session (shm = override unset):
+  both at 60 FPS (p95 17.0 ms); **client CPU 12% → 6%, Hyprland 17% → 14%** with dmabuf. Content checked
+  pixel-exact against the shm path with grim on a lab compositor.
+- **Edge** (guest profile, `--ozone-platform=wayland`): GPU compositing `disabled_software` → **enabled**,
+  WebGL/WebGPU `enabled_readback` → **enabled**, on ANGLE → D3D12 (Iris Xe). A WebGL canvas renders correctly
+  (it stayed blank on the shm path, the TROUBLESHOOTING caveat). A CPU A/B for Edge was inconclusive: Edge
+  reaches the node through GBM even without the loader override.
+- **glxgears** (X11): ~20 → ~50 FPS.
+
+Still to do before a default: package the patches (new `*_REL`), set the three environment variables from the
+image instead of a user file, check other GPUs (ordering), Xwayland apps more widely, screen capture/recording,
+and memory use with many GPU windows. Note for lab tests: a fresh Edge profile signs in with the Windows
+account and starts syncing; use `--guest`.
