@@ -823,7 +823,7 @@ fn create_gfx() -> windows::core::Result<Gfx> {
         let device = device.ok_or_else(windows::core::Error::empty)?;
         let context = context.ok_or_else(windows::core::Error::empty)?;
         let dxgi: IDXGIDevice1 = device.cast()?;
-        // present one frame ahead at most: the compositor renders the next frame only after our ack
+        // present one frame ahead at most; we ack after uploading, so the compositor renders the next frame meanwhile
         let _ = dxgi.SetMaximumFrameLatency(1);
         let factory: IDXGIFactory2 = dxgi.GetAdapter()?.GetParent()?;
         Ok(Gfx { device, context, factory, swapchain: None, content: None })
@@ -916,7 +916,8 @@ fn presenter(session: &'static Session, id: u32, rx: mpsc::Receiver<Job>) {
             continue;
         };
 
-        if let Err(e) = present_frame(session, &mut gfx, &mut sections, &mut reported, &f, r.rest(), id, &mut frames) {
+        let mut acked = false;
+        if let Err(e) = present_frame(session, &mut gfx, &mut sections, &mut reported, &f, r.rest(), id, &mut frames, &mut acked) {
             if reported.insert(format!("{:?}", e.code())) {
                 eprintln!("[omarchy] output {}: {}", id, e.message());
             }
@@ -927,7 +928,9 @@ fn presenter(session: &'static Session, id: u32, rx: mpsc::Receiver<Job>) {
                 send(wdp::refresh(id));
             }
         }
-        let _ = session.conn.send_msg(&wdp::frame_done(id, f.seq, 0));
+        if !acked {
+            let _ = session.conn.send_msg(&wdp::frame_done(id, f.seq, 0));
+        }
         if trace {
             eprintln!("[trace] output {} seq {} done in {:.2} ms", id, f.seq, t_recv.elapsed().as_secs_f64() * 1e3);
         }
@@ -954,6 +957,7 @@ fn present_frame(
     inline: &[u8],
     id: u32,
     frames: &mut u64,
+    acked: &mut bool,
 ) -> windows::core::Result<()> {
     // the window may have changed since the last frame (monitor layout change) or be gone
     let Some(surface) = surface_by_id(id) else { return Ok(()) };
@@ -1011,6 +1015,11 @@ fn present_frame(
                 STAT_PIXELS.fetch_add(rc.w as u64 * rc.h as u64, Ordering::Relaxed);
             }
         }
+
+        // UpdateSubresource has copied the pixels, so the compositor may reuse its buffer: ack now, before
+        // Present waits for vblank, so the next frame renders while this one is presented (pipelining).
+        let _ = session.conn.send_msg(&wdp::frame_done(id, f.seq, 0));
+        *acked = true;
 
         unsafe {
             let back: ID3D11Texture2D = swapchain.GetBuffer(0)?;
