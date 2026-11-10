@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Shital Shah <2096835+sytelus@users.noreply.github.com>
 Date: Wed, 30 Sep 2026 21:53:57 -0700
-Subject: [PATCH 2/6] compositor: select aquamarine's wsl backend with
+Subject: [PATCH 2/7] compositor: select aquamarine's wsl backend with
  HYPRLAND_BACKEND=wsl
 
 With HYPRLAND_BACKEND=wsl, create aquamarine's "wsl" (remote viewer) backend as mandatory plus the

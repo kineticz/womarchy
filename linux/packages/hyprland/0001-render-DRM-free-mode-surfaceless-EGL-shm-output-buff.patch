@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Shital Shah <2096835+sytelus@users.noreply.github.com>
 Date: Wed, 30 Sep 2026 21:53:57 -0700
-Subject: [PATCH 1/6] render: DRM-free mode (surfaceless EGL, shm output
+Subject: [PATCH 1/7] render: DRM-free mode (surfaceless EGL, shm output
  buffers)
 
 Let Hyprland composite on a GPU it can only reach through EGL (no DRM render node, no GBM, no

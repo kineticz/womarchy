@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Kaiyin Zhong <kaiyin@zhong.science>
 Date: Tue, 3 Nov 2026 21:22:31 +0100
-Subject: [PATCH 3/3] backend: wsl forward explicit cursor warps to the host
+Subject: [PATCH 3/4] backend: wsl forward explicit cursor warps to the host
 
 Keep moveCursor a no-op for normal host input. Add a separate explicit-warp entry point and an additive WDP v2 message, so compositor focus actions can move the real Windows pointer without a motion feedback loop. Refresh the backend protocol header from the shared specification.
 ---

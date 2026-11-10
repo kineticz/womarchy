@@ -6,13 +6,13 @@
 
 pkgname=(hyprland)
 pkgver=0.56.2
-pkgrel=4.7
+pkgrel=4.8
 pkgdesc='a highly customizable dynamic tiling Wayland compositor'
 arch=(x86_64 aarch64)
 url="https://github.com/hyprwm/${pkgname^}"
 license=(BSD-3-Clause)
 depends=(cairo # libcairo.so
-         'aquamarine>=0.15.1-1.10' libaquamarine.so
+         'aquamarine>=0.15.1-1.11' libaquamarine.so
          libgcc # libgcc_s.so
          'libstdc++' # libstdc++.so
          glibc # libc.so libm.so
@@ -66,9 +66,9 @@ optdepends=('hyprpm: build and install plugins'
             'xdg-desktop-portal-hyprland: xdg-desktop-portal backend for hyprland')
 provides=(wayland-compositor)
 _archive="${pkgname^}-$pkgver"
-source=(0001-render-DRM-free-mode-surfaceless-EGL-shm-output-buff.patch 0002-compositor-select-aquamarine-s-wsl-backend-with-HYPR.patch 0003-pointer-CPU-cursor-buffers-without-dmabuf.patch 0004-protocols-screen-capture-without-linux-dmabuf.patch 0005-input-absolute-pointer-motion-relative-to-the-backen.patch 0006-pointer-synchronize-explicit-warps-with-the-WSL-view.patch
+source=(0001-render-DRM-free-mode-surfaceless-EGL-shm-output-buff.patch 0002-compositor-select-aquamarine-s-wsl-backend-with-HYPR.patch 0003-pointer-CPU-cursor-buffers-without-dmabuf.patch 0004-protocols-screen-capture-without-linux-dmabuf.patch 0005-input-absolute-pointer-motion-relative-to-the-backen.patch 0006-pointer-synchronize-explicit-warps-with-the-WSL-view.patch 0007-render-linux-dmabuf-work-on-a-vgem-render-node-WSL.patch
         "$_archive.tar.gz::$url/releases/download/v$pkgver/source-v$pkgver.tar.gz")
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP'
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP'
   '03ad3f5ef152ff44116ffd56fcf808486211ecabf4f0ba567108ee746ba5cd2e')
 
 prepare() {
@@ -83,6 +83,7 @@ prepare() {
 	patch -d "hyprland-source" -Np1 -i "$srcdir/0004-protocols-screen-capture-without-linux-dmabuf.patch"
 	patch -d "hyprland-source" -Np1 -i "$srcdir/0005-input-absolute-pointer-motion-relative-to-the-backen.patch"
 	patch -d "hyprland-source" -Np1 -i "$srcdir/0006-pointer-synchronize-explicit-warps-with-the-WSL-view.patch"
+	patch -d "hyprland-source" -Np1 -i "$srcdir/0007-render-linux-dmabuf-work-on-a-vgem-render-node-WSL.patch"
 }
 
 build() {

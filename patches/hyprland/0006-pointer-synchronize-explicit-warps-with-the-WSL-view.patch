@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Kaiyin Zhong <kaiyin@zhong.science>
 Date: Tue, 3 Nov 2026 21:22:31 +0100
-Subject: [PATCH 6/6] pointer: synchronize explicit warps with the WSL viewer
+Subject: [PATCH 6/7] pointer: synchronize explicit warps with the WSL viewer
 
 After the no_warps guard and layout clamping, notify WSL outputs of explicit cursor warps. Reuse the existing monitor coordinate helper for scale and transform handling; leave incoming motion and other backends unchanged. Requires the patched Aquamarine warpCursor entry point.
 ---

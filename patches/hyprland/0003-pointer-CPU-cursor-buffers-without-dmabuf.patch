@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Shital Shah <2096835+sytelus@users.noreply.github.com>
 Date: Wed, 30 Sep 2026 21:53:57 -0700
-Subject: [PATCH 3/6] pointer: CPU cursor buffers without dmabuf
+Subject: [PATCH 3/7] pointer: CPU cursor buffers without dmabuf
 
 When the preferred allocator hands out CPU (shm) buffers, the cursor buffer size comes from the
 buffer itself (there is no dmabuf to ask), and the CPU cursor path is used automatically, so

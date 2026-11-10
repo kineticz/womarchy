@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Shital Shah <2096835+sytelus@users.noreply.github.com>
 Date: Wed, 30 Sep 2026 21:53:57 -0700
-Subject: [PATCH 5/6] input: absolute pointer motion relative to the backend's
+Subject: [PATCH 5/7] input: absolute pointer motion relative to the backend's
  output
 
 aquamarine's IPointer::SWarpEvent carries the output its absolute (0..1) position refers to, but

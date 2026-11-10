@@ -37,9 +37,9 @@ to CPU raster.
 4. **Vulkan (dzn) ↔ GL sharing works too** via `VK_KHR_external_memory_fd` (opaque fd, also a
    `dxgresource`) and `GL_EXT_memory_object_fd`: 300/300 correct 1080p frames, 0.3 ms producer,
    0.7 ms compositor side (`loop_prod.c` / `loop_cons.c`). On GLES 3.0 contexts this needs Mesa patch
-   [0003](../../patches/mesa/0003-glapi-expose-EXT_external_objects-entry-points-on-Op.patch): the
+   [0003](../../patches/mesa-pending/0003-glapi-expose-EXT_external_objects-entry-points-on-Op.patch): the
    extension is advertised but its entry points were dispatched only from ES 3.2 (0/300 frames without
-   the patch). Patch [0004](../../patches/mesa/0004-d3d12-don-t-use-an-uninitialized-pointer-when-a-memo.patch)
+   the patch). Patch [0004](../../patches/mesa-pending/0004-d3d12-don-t-use-an-uninitialized-pointer-when-a-memo.patch)
    fixes a crash on a failed memobj import (uninitialized pointer).
 5. **Shared fences across processes do not work on WSL.** A timeline semaphore exported by dzn
    (`anon_inode:dxgsyncobj`) can't be opened in another process, neither by dzn
@@ -95,7 +95,9 @@ Measured in the session (performance power mode, 60 Hz):
   reaches the node through GBM even without the loader override.
 - **glxgears** (X11): ~20 → ~50 FPS.
 
-Still to do before a default: package the patches (new `*_REL`), set the three environment variables from the
-image instead of a user file, check other GPUs (ordering), Xwayland apps more widely, screen capture/recording,
-and memory use with many GPU windows. Note for lab tests: a fresh Edge profile signs in with the Windows
+Packaged afterwards: aquamarine `0.15.1-1.11`, Hyprland `0.56.2-4.8` and womarchy-compat `0.4.2`, whose
+`60-womarchy-gpu` user environment generator sets `WOMARCHY_DMABUF=1`, `WOMARCHY_RENDER_NODE`,
+`MESA_LOADER_DRIVER_OVERRIDE=kms_swrast` and `LIBGL_KOPPER_DISABLE=1` when `/dev/dxg` and a vgem render node
+exist (opt out with `WOMARCHY_DMABUF=0` in `~/.config/environment.d/`). Not yet checked: other GPUs (ordering),
+Xwayland apps more widely, screen capture/recording, and memory use with many GPU windows. Note for lab tests: a fresh Edge profile signs in with the Windows
 account and starts syncing; use `--guest`.

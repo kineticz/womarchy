@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Shital Shah <2096835+sytelus@users.noreply.github.com>
 Date: Wed, 30 Sep 2026 21:53:58 -0700
-Subject: [PATCH 2/3] backend: wsl, a remote-viewer backend
+Subject: [PATCH 2/4] backend: wsl, a remote-viewer backend
 
 A backend for compositors running where there is no display hardware but a viewer elsewhere shows
 the outputs (written for WSL2 with omarchy.exe, but generic): it listens on AF_VSOCK (or a unix

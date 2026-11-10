@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Shital Shah <2096835+sytelus@users.noreply.github.com>
 Date: Wed, 30 Sep 2026 21:53:57 -0700
-Subject: [PATCH 4/6] protocols: screen capture without linux-dmabuf
+Subject: [PATCH 4/7] protocols: screen capture without linux-dmabuf
 
 Without a DRM device the linux-dmabuf protocol is not created, but ext-image-copy-capture sessions
 called PROTO::linuxDma->getMainDevice() unconditionally (null dereference: any screenshot tool

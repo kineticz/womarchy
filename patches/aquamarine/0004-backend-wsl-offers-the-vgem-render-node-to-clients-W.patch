@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Kaiyin Zhong <kaiyin@zhong.science>
 Date: Tue, 10 Nov 2026 14:31:58 +0100
-Subject: [PATCH] backend: wsl offers the vgem render node to clients
+Subject: [PATCH 4/4] backend: wsl offers the vgem render node to clients
  (WOMARCHY_DMABUF=1)
 
 Newer WSL kernels have vgem built in. GBM/EGL on its render node run on the GPU
