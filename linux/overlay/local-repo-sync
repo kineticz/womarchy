@@ -1,0 +1,52 @@
+#!/bin/bash
+# womarchy: keep the local [womarchy] fallback repo (/var/lib/womarchy/repo, pacman's second Server for
+# [womarchy]) in step with the hosted one. Run by the pacman hook 30-womarchy-local-repo after every
+# transaction.
+#
+# Why: `omarchy refresh pacman` runs `pacman -Syyuu` (forced database refresh, downgrades allowed). With
+# the hosted repo unreachable at that moment, pacman would take the fallback's database, which is the one
+# the image shipped with, and downgrade Mesa, Hyprland and aquamarine to the image's builds.
+#
+# The fallback gets the hosted database exactly as pacman last downloaded it (with its signature, so
+# `DatabaseRequired` still holds) plus the package files of it that are in pacman's cache; package files the
+# database no longer lists are removed. A database that came from the fallback itself is identical, so
+# nothing changes offline. Paths can be overridden for tests (WOMARCHY_LOCAL_REPO, WOMARCHY_SYNC_DIR,
+# WOMARCHY_CACHE_DIRS: space-separated).
+set -euo pipefail
+repo=${WOMARCHY_LOCAL_REPO:-/var/lib/womarchy/repo}
+sync=${WOMARCHY_SYNC_DIR:-/var/lib/pacman/sync}
+if [[ -n ${WOMARCHY_CACHE_DIRS:-} ]]; then
+  read -r -a caches <<<"$WOMARCHY_CACHE_DIRS"
+else
+  mapfile -t caches < <(pacman-conf CacheDir 2>/dev/null || echo /var/cache/pacman/pkg/)
+fi
+
+db=$sync/womarchy.db
+[[ -d $repo && -f $db && -f $db.sig ]] || exit 0
+cmp -s "$db" "$repo/womarchy.db" && cmp -s "$db.sig" "$repo/womarchy.db.sig" && exit 0
+
+mapfile -t files < <(bsdtar -xOf "$db" '*/desc' 2>/dev/null | awk '/^%FILENAME%$/ { getline; print }')
+((${#files[@]})) || { echo "womarchy: could not read $db; local repo left as it is" >&2; exit 0; }
+declare -A wanted=()
+for f in "${files[@]}"; do
+  [[ $f =~ ^[A-Za-z0-9@._+:-]+$ ]] || continue   # a file name, nothing else
+  wanted[$f]=1
+  [[ -f $repo/$f ]] && continue
+  for c in "${caches[@]}"; do
+    if [[ -f ${c%/}/$f ]]; then
+      install -m 0644 "${c%/}/$f" "$repo/$f"
+      [[ -f ${c%/}/$f.sig ]] && install -m 0644 "${c%/}/$f.sig" "$repo/$f.sig"
+      break
+    fi
+  done
+done
+for p in "$repo"/*.pkg.tar.*; do
+  [[ -e $p ]] || continue
+  n=${p##*/}; n=${n%.sig}
+  [[ -n ${wanted[$n]:-} ]] || rm -f "$p"
+done
+# The database last: the package files it lists that were cached are in place by then.
+for name in womarchy.db womarchy.db.tar.gz; do
+  install -m 0644 "$db" "$repo/.$name.new" && mv -f "$repo/.$name.new" "$repo/$name"
+  install -m 0644 "$db.sig" "$repo/.$name.sig.new" && mv -f "$repo/.$name.sig.new" "$repo/$name.sig"
+done

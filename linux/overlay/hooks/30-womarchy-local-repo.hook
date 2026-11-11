@@ -1,0 +1,14 @@
+# womarchy: keep the local [womarchy] fallback repo in step with the hosted one, so a forced refresh
+# while the hosted repo is unreachable can't downgrade womarchy's packages; see
+# /usr/lib/womarchy/local-repo-sync.
+[Trigger]
+Type = Package
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Target = *
+
+[Action]
+Description = Updating the local womarchy repository...
+When = PostTransaction
+Exec = /usr/lib/womarchy/local-repo-sync

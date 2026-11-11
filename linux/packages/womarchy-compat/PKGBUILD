@@ -18,13 +18,13 @@
 # linux/overlay into womarchy-overlay.tar.gz next to this PKGBUILD.
 
 pkgname=womarchy-compat
-pkgver=0.4.6
+pkgver=0.4.7
 pkgrel=1
 pkgdesc='Omarchy on WSL: bootloader/snapshot stand-ins and the womarchy WSL overlay'
 arch=(any)
 url='https://github.com/sytelus/womarchy'
 license=(MIT)
-depends=(bash jq perl pacman systemd sudo iproute2 desktop-file-utils curl womarchy-keyring)
+depends=(bash jq perl libarchive pacman systemd sudo iproute2 desktop-file-utils curl womarchy-keyring)
 optdepends=('omarchy: the desktop this overlay adapts'
             'womarchy-session: Hyprland session launcher and shared-memory mount'
             'mesa-utils: eglinfo, used to confirm the d3d12 GPU path')
@@ -47,6 +47,8 @@ package() {
   install -Dm755 "$o/mesa-llvm-guard" "$pkgdir/usr/lib/womarchy/mesa-llvm-guard"
   # LLVM copy without GNU_UNIQUE symbols, ahead of /usr/lib (hook 10-womarchy-llvm-unique)
   install -Dm755 "$o/llvm-deunique" "$pkgdir/usr/lib/womarchy/llvm-deunique"
+  # Local fallback repo follows the hosted one (hook 30-womarchy-local-repo)
+  install -Dm755 "$o/local-repo-sync" "$pkgdir/usr/lib/womarchy/local-repo-sync"
   install -Dm644 "$o/ld.so.conf.d/womarchy-llvm.conf" "$pkgdir/usr/lib/ld.so.conf.d/womarchy-llvm.conf"
   for f in "$o"/hooks/*.hook; do
     install -Dm644 "$f" "$pkgdir/usr/share/libalpm/hooks/${f##*/}"

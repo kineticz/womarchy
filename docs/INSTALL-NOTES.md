@@ -118,6 +118,7 @@ What changed after the code review, in detail (the notes above are updated to ma
   - It is root-owned and never group/other-writable: it is trusted (`TrustAll`) and comes first, so a writable copy would let any user plant packages that root installs.
   - `pacman.conf` lists `Server = https://github.com/sytelus/womarchy/releases/download/packages` first, then `file:///var/lib/womarchy/repo` as the offline fallback.
   - `wsl/pacman.sh` repairs ownership and permissions, migrates the old `/var/cache/womarchy-repo`, and **fails loudly** rather than leave `[womarchy]` out.
+  - The fallback follows the hosted repo: after every transaction the pacman hook `30-womarchy-local-repo` copies the last downloaded (signed) database and the cached package files it lists, and removes package files it no longer lists. Otherwise `omarchy refresh pacman` (`pacman -Syyuu`) with GitHub unreachable would take the image's database and downgrade Mesa, Hyprland and aquamarine.
   - **(script)** The installer must never copy the repo with modes from a Windows drive.
 - **Settings:** `/etc/womarchy/config` holds `WOMARCHY_DOCKER` (default 1) and `WOMARCHY_FIREWALL` (default 0). Change a setting with `sudo WOMARCHY_DOCKER=0 womarchy-apply-system --reassert`: the value is saved to the file and kept across `omarchy update`.
 - **Masks:** a service the user unmasks after womarchy masked it is left alone from then on (`/var/lib/womarchy/{masked,released}-units`).
