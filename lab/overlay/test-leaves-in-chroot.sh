@@ -88,3 +88,7 @@ t "no vgem node: no dmabuf env" bash -c "! env -i WOMARCHY_DXG=/tmp/dxg WOMARCHY
 t "WOMARCHY_DMABUF=0 opts out" bash -c "! env -i WOMARCHY_DMABUF=0 WOMARCHY_DXG=/tmp/dxg WOMARCHY_DRM_SYSFS=/tmp/drm-vgem/class $g | grep -q -e DMABUF -e MESA_LOADER"
 t "no dxg: no dmabuf env" bash -c "! env -i WOMARCHY_DXG=/nonexistent WOMARCHY_DRM_SYSFS=/tmp/drm-vgem/class $g | grep -q DMABUF"
 t "old environment.d file removed" test ! -e /etc/environment.d/10-womarchy-gpu.conf
+printf '%s\n' '# Managed by womarchy (wsl/gpu.sh).' 'export GSK_RENDERER="${GSK_RENDERER:-ngl}"' >/etc/profile.d/womarchy-gpu.sh
+h=/usr/share/libalpm/hooks/20-womarchy-gpu-env.hook
+eval "$(sed -n 's/^Exec = //p' $h)" >/dev/null 2>&1
+t "compat upgrade hook rewrites the login-shell GPU env" bash -c "grep -q 'GSK_RENDERER:-gl}' /etc/profile.d/womarchy-gpu.sh && ! grep -q ngl /etc/profile.d/womarchy-gpu.sh"

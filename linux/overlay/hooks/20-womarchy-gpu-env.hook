@@ -1,0 +1,12 @@
+# womarchy: rewrite /etc/profile.d/womarchy-gpu.sh when womarchy-compat changes. The image writes it
+# (wsl/gpu.sh) and `omarchy update` reasserts it, but a plain `pacman -U` of the package does not.
+[Trigger]
+Type = Package
+Operation = Install
+Operation = Upgrade
+Target = womarchy-compat
+
+[Action]
+Description = Updating the womarchy GPU environment for login shells...
+When = PostTransaction
+Exec = /bin/bash /usr/lib/womarchy/wsl/gpu.sh
