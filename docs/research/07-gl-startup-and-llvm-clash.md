@@ -99,4 +99,6 @@ warned on every start.
 ## Other findings, not fixed yet
 
 - Edge stalls for 4–9 s in about half of its starts, with or without these patches (12 runs: 6 of 12),
-  and with `--disable-gpu-sandbox` too. No error in its log and no GPU-process restart.
+  with `--disable-gpu-sandbox`, and also with `--disable-gpu` (2 of 6): it is not a graphics problem. All
+  threads of the browser, GPU and renderer processes sleep in futex waits until it resolves; no error in the
+  log and no GPU-process restart.
