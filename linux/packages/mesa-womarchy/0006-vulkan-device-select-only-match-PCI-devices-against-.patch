@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Kaiyin Zhong <kaiyin@zhong.science>
 Date: Wed, 11 Nov 2026 14:13:33 +0100
-Subject: [PATCH 6/6] vulkan/device-select: only match PCI devices against the
+Subject: [PATCH 6/9] vulkan/device-select: only match PCI devices against the
  display's device
 
 device_select_find_wayland_pci_default() and the X11 variant read

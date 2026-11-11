@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Kaiyin Zhong <kaiyin@zhong.science>
 Date: Wed, 11 Nov 2026 13:35:57 +0100
-Subject: [PATCH 5/6] d3d12: on-disk shader cache for GLSL programs and
+Subject: [PATCH 5/9] d3d12: on-disk shader cache for GLSL programs and
  pipeline states
 
 d3d12 had no shader cache at all, so every process linked all of its GLSL

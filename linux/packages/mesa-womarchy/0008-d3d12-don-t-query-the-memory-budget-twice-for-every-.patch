@@ -1,7 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Kaiyin Zhong <kaiyin@zhong.science>
 Date: Wed, 11 Nov 2026 15:10:06 +0100
-Subject: [PATCH] d3d12: don't query the memory budget twice for every batch
+Subject: [PATCH 8/9] d3d12: don't query the memory budget twice for every
+ batch
 
 d3d12_process_batch_residency() read the adapter's memory budget at the
 start of every batch and again at the top of its loop, before anything had

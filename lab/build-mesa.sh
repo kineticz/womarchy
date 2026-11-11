@@ -2,7 +2,7 @@
 # Build Mesa (matching the system version) with womarchy patches into /opt/womarchy-mesa (lab only).
 ROOT=${WOMARCHY_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}  # repo root
 set -euo pipefail
-VER=${MESA_VER:-26.2.3}
+VER=${MESA_VER:-26.2.5}
 sudo pacman -S --noconfirm --needed meson ninja directx-headers python-mako python-packaging python-yaml glslang libdrm wayland wayland-protocols libx11 libxext libxfixes libxshmfence libxxf86vm libxrandr libxcb libglvnd byacc flex bison >/dev/null
 mkdir -p ~/src && cd ~/src
 [ -f mesa-$VER.tar.xz ] || curl -sLo mesa-$VER.tar.xz https://archive.mesa3d.org/mesa-$VER.tar.xz

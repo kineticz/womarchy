@@ -20,7 +20,7 @@ Arch packages.
 | [0005](hyprland/0005-input-absolute-pointer-motion-relative-to-the-backen.patch) input: absolute motion per output | Absolute pointer positions map onto the output they refer to, not the whole layout (nested/remote backends with several outputs). | — |
 | [0006](hyprland/0006-pointer-synchronize-explicit-warps-with-the-WSL-view.patch) pointer: synchronize explicit WSL warps | Keyboard focus/workspace changes also move the real Windows cursor; respects `cursor:no_warps`. | aquamarine 0003 |
 | [0007](hyprland/0007-render-linux-dmabuf-work-on-a-vgem-render-node-WSL.patch) render, linux-dmabuf: vgem render node | On vgem: EGL through GBM (the device platform can't initialise there) and no PRIME check on client buffers (dxgkrnl fds that EGL imports but vgem's PRIME rejects). | aquamarine 0004 |
-| **Mesa** (26.2.3) | | |
+| **Mesa** (26.2.5) | | |
 | [0001](mesa/0001-d3d12-reclaim-outside-pb-manager-locks.patch) d3d12: reclaim outside pb manager locks | Fixes a self-deadlock on the first text texture upload. | — |
 | [0002](mesa/0002-d3d12-write-back-upload-heaps-on-wsl.patch) d3d12: write-back upload heaps on WSL | CPU writes to write-combine heaps run at ~9 MB/s on WSL 3.0.1; texture uploads were 500x slower. `D3D12_UPLOAD_WRITE_BACK=0` turns it off. | — |
 | [0003](mesa/0003-d3d12-finish-shared-resource-writes-at-flush-on-WSL.patch) d3d12: finish shared-resource writes at flush | dxgkrnl dmabufs carry no fence, so a compositor could sample a client buffer before its GPU work ran. A flush that submitted writes to a shared resource waits for them. See [research 06](../docs/research/06-zero-copy-gpu-buffers.md). | — |

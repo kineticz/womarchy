@@ -4,4 +4,4 @@ AQUAMARINE_REPO=https://github.com/hyprwm/aquamarine
 AQUAMARINE_TAG=v0.15.1
 HYPRLAND_REPO=https://github.com/hyprwm/Hyprland
 HYPRLAND_TAG=v0.56.2
-MESA_VERSION=26.2.3   # patches/mesa apply to the release tarball (Arch's mesa PKGBUILD in linux/packages/ref)
+MESA_VERSION=26.2.5   # patches/mesa apply to the release tarball (Arch's mesa PKGBUILD in linux/packages/ref)

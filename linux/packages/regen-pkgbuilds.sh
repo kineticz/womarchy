@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 AQUAMARINE_REL=11 # 11: offer the vgem render node (linux-dmabuf); 10: explicit host cursor warps; 9: no MAP_POPULATE on shm buffers
 HYPRLAND_REL=8 # 8: linux-dmabuf on a vgem render node; 7: synchronize explicit WSL cursor warps; 6: two shm swapchain buffers
-MESA_REL=8 # 8: inf comparisons (Edge crosses on rounded buttons); 7: memory budget read once per batch; 6: EGL dmabuf export of unshareable images; 5: device-select crash on vgem; 4: d3d12 shader cache; 3: WSL sync for shared buffers (flush waits, native fence fds for Chromium); 2: rebuild for LLVM 23.1
+MESA_REL=9 # 9: rebased on 26.2.5; 8: inf comparisons (Edge crosses on rounded buttons); 7: memory budget read once per batch; 6: EGL dmabuf export of unshareable images; 5: device-select crash on vgem; 4: d3d12 shader cache; 3: WSL sync for shared buffers (flush waits, native fence fds for Chromium); 2: rebuild for LLVM 23.1
 PY=$(command -v python3 >/dev/null && python3 -c 'print(1)' >/dev/null 2>&1 && echo python3 || echo python)
 
 bash refresh-patches.sh

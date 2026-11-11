@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Kaiyin Zhong <kaiyin@zhong.science>
 Date: Wed, 11 Nov 2026 14:19:53 +0100
-Subject: [PATCH] egl/dri2: don't report dmabuf export of images the driver
+Subject: [PATCH 7/9] egl/dri2: don't report dmabuf export of images the driver
  can't share
 
 dri2_export_dma_buf_image_mesa() ignored the result of the
