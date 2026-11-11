@@ -1,0 +1,171 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kaiyin Zhong <kaiyin@zhong.science>
+Date: Wed, 11 Nov 2026 12:11:21 +0100
+Subject: [PATCH 4/4] d3d12: emulate native fence fds for Chromium GPU
+ processes on WSL
+
+WSL has no sync_file for D3D12 work, so d3d12 can't offer
+EGL_ANDROID_native_fence_sync. Chromium on Linux (kernel >= 6.0) believes
+dmabufs carry implicit fences, so its Wayland backend skips the glFlush before
+presenting and ships an acquire fence instead -- which it only creates with a
+native fence. With neither, the GPU work for a frame stays queued and the
+compositor shows the buffer's previous contents: flicker and stale frames.
+
+In Chromium/Electron GPU processes ("--type=gpu-process" on the command line;
+D3D12_WSL_NATIVE_FENCE_FD=0/1 overrides), advertise native fence fds:
+exporting one waits for the fence (the flush already happened when the sync
+was created) and returns an already-readable eventfd, i.e. a signaled fence to
+poll(); importing one waits for the fd on the CPU.
+---
+ .../drivers/d3d12/d3d12_context_common.cpp    |  4 +
+ src/gallium/drivers/d3d12/d3d12_fence.cpp     | 78 +++++++++++++++++++
+ src/gallium/drivers/d3d12/d3d12_fence.h       |  7 ++
+ src/gallium/drivers/d3d12/d3d12_screen.cpp    |  3 +
+ 4 files changed, 92 insertions(+)
+
+diff --git a/src/gallium/drivers/d3d12/d3d12_context_common.cpp b/src/gallium/drivers/d3d12/d3d12_context_common.cpp
+index 4e488a7..c784335 100644
+--- a/src/gallium/drivers/d3d12/d3d12_context_common.cpp
++++ b/src/gallium/drivers/d3d12/d3d12_context_common.cpp
+@@ -622,6 +622,10 @@ d3d12_context_create(struct pipe_screen *pscreen, void *priv, unsigned flags)
+    ctx->base.flush_resource = d3d12_flush_resource;
+    ctx->base.fence_server_signal = d3d12_signal;
+    ctx->base.fence_server_sync = d3d12_wait;
++#ifndef _WIN32
++   if (d3d12_emulate_native_fence_fd())
++      ctx->base.create_fence_fd = d3d12_create_fence_fd;
++#endif
+    ctx->base.memory_barrier = d3d12_memory_barrier;
+    ctx->base.texture_barrier = d3d12_texture_barrier;
+ 
+diff --git a/src/gallium/drivers/d3d12/d3d12_fence.cpp b/src/gallium/drivers/d3d12/d3d12_fence.cpp
+index b860ae0..44d86c2 100644
+--- a/src/gallium/drivers/d3d12/d3d12_fence.cpp
++++ b/src/gallium/drivers/d3d12/d3d12_fence.cpp
+@@ -28,6 +28,16 @@
+ 
+ #include "util/u_memory.h"
+ 
++#ifndef _WIN32
++#include <errno.h>
++#include <fcntl.h>
++#include <poll.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++#include <sys/eventfd.h>
++#endif
++
+ #include <dxguids/dxguids.h>
+ 
+ static void
+@@ -202,9 +212,77 @@ d3d12_fence_wait_impl(struct d3d12_fence *fence, ID3D12CommandQueue *queue, uint
+    queue->Wait(fence->cmdqueue_fence, value);
+ }
+ 
++#ifndef _WIN32
++/* WSL has no sync_file for D3D12 work, so EGL_ANDROID_native_fence_sync isn't available. Chromium
++ * on Linux (kernel >= 6.0) then skips its glFlush before handing a frame to the Wayland compositor:
++ * it expects to ship the frame with a native acquire fence instead. Without one, its GPU work stays
++ * queued and the compositor shows whatever the buffer held before (flicker, stale frames).
++ *
++ * In Chromium/Electron GPU processes, emulate native fence fds: exporting a fence flushes (as fence
++ * creation does) and waits for it, then returns an fd that is already readable, i.e. a signaled
++ * fence to poll(). Importing an fd waits for it on the CPU. D3D12_WSL_NATIVE_FENCE_FD=0/1 overrides
++ * the process check. */
++bool
++d3d12_emulate_native_fence_fd(void)
++{
++   static int enabled = -1;
++   if (enabled < 0) {
++      const char *env = getenv("D3D12_WSL_NATIVE_FENCE_FD");
++      if (env) {
++         enabled = atoi(env) != 0;
++      } else {
++         enabled = 0;
++         int f = open("/proc/self/cmdline", O_RDONLY | O_CLOEXEC);
++         if (f >= 0) {
++            char buf[4096];
++            ssize_t n = read(f, buf, sizeof(buf) - 1);
++            close(f);
++            for (ssize_t i = 0; i < n; i++)
++               if (!buf[i])
++                  buf[i] = ' ';
++            if (n > 0) {
++               buf[n] = 0;
++               enabled = strstr(buf, " --type=gpu-process") != NULL;
++            }
++         }
++      }
++   }
++   return enabled;
++}
++
++static int
++fence_get_fd(struct pipe_screen *pscreen, struct pipe_fence_handle *pfence)
++{
++   struct d3d12_fence *fence = d3d12_fence(pfence);
++   if (!fence || fence->type != PIPE_FD_TYPE_NATIVE_SYNC ||
++       !d3d12_fence_finish(fence, OS_TIMEOUT_INFINITE))
++      return -1;
++   return eventfd(1, EFD_CLOEXEC);
++}
++
++void
++d3d12_create_fence_fd(struct pipe_context *pctx, struct pipe_fence_handle **pfence,
++                      int fd, enum pipe_fd_type type)
++{
++   *pfence = NULL;
++   if (type != PIPE_FD_TYPE_NATIVE_SYNC)
++      return;
++   struct pollfd p = {};
++   p.fd = fd;
++   p.events = POLLIN;
++   while (poll(&p, 1, -1) < 0 && (errno == EINTR || errno == EAGAIN))
++      ;
++   *pfence = (struct pipe_fence_handle *)d3d12_create_fence(d3d12_screen(pctx->screen), false);
++}
++#endif
++
+ void
+ d3d12_screen_fence_init(struct pipe_screen *pscreen)
+ {
+    pscreen->fence_reference = fence_reference;
+    pscreen->fence_finish = fence_finish;
++#ifndef _WIN32
++   if (d3d12_emulate_native_fence_fd())
++      pscreen->fence_get_fd = fence_get_fd;
++#endif
+ }
+diff --git a/src/gallium/drivers/d3d12/d3d12_fence.h b/src/gallium/drivers/d3d12/d3d12_fence.h
+index d6200cd..9ae0619 100644
+--- a/src/gallium/drivers/d3d12/d3d12_fence.h
++++ b/src/gallium/drivers/d3d12/d3d12_fence.h
+@@ -119,6 +119,13 @@ d3d12_video_destroy_fence(struct pipe_video_codec *codec, struct pipe_fence_hand
+ bool
+ d3d12_fence_finish(struct d3d12_fence *fence, uint64_t timeout_ns);
+ 
++bool
++d3d12_emulate_native_fence_fd(void);
++
++void
++d3d12_create_fence_fd(struct pipe_context *pctx, struct pipe_fence_handle **pfence,
++                      int fd, enum pipe_fd_type type);
++
+ void
+ d3d12_screen_fence_init(struct pipe_screen *pscreen);
+ 
+diff --git a/src/gallium/drivers/d3d12/d3d12_screen.cpp b/src/gallium/drivers/d3d12/d3d12_screen.cpp
+index 90b70e4..a2fc299 100644
+--- a/src/gallium/drivers/d3d12/d3d12_screen.cpp
++++ b/src/gallium/drivers/d3d12/d3d12_screen.cpp
+@@ -384,6 +384,9 @@ d3d12_init_screen_caps(struct d3d12_screen *screen)
+    caps->robust_buffer_access_behavior = true;
+    caps->memobj = true;
+    caps->fence_signal = true;
++#ifndef _WIN32
++   caps->native_fence_fd = d3d12_emulate_native_fence_fd();
++#endif
+    caps->timeline_semaphore_import = true;
+    caps->clip_halfz = true;
+    caps->vs_layer_viewport = true;

@@ -2,6 +2,7 @@
 """Regression tests for the Mesa rebuild, without installing packages."""
 from pathlib import Path
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -12,11 +13,14 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = ROOT / "linux/packages"
 
 
+# The revision comes from the regeneration script, the single source of truth.
+REL = re.search(r"^MESA_REL=(\d+)", (Path(__file__).resolve().parents[1] / "linux/packages/regen-pkgbuilds.sh").read_text(), re.M).group(1)
+
 class MesaPkgbuildTests(unittest.TestCase):
     def generate(self, source, output):
         return subprocess.run(
             [sys.executable, str(PACKAGES / "mesa-womarchy/make-pkgbuild.py"),
-             "--rel", "2", str(source), str(output),
+             "--rel", REL, str(source), str(output),
              *map(str, sorted((PACKAGES / "mesa-womarchy").glob("0*.patch")))],
             capture_output=True, text=True, check=False,
         )
@@ -28,7 +32,7 @@ class MesaPkgbuildTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             text = output.read_text()
             self.assertEqual(text, (PACKAGES / "mesa-womarchy/PKGBUILD").read_text())
-            self.assertIn("pkgrel=2.2\n", text)
+            self.assertRegex(text, rf"\npkgrel=\d+\.{REL}\n")
             self.assertEqual(text.count("    libLLVM.so\n"), 2)
             # The build dependency remains a normal package dependency.
             self.assertIn("  llvm\n  llvm-libs\n", text)

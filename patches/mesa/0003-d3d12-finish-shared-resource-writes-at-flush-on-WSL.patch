@@ -1,0 +1,108 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kaiyin Zhong <kaiyin@zhong.science>
+Date: Wed, 11 Nov 2026 11:29:42 +0100
+Subject: [PATCH 3/4] d3d12: finish shared-resource writes at flush on WSL
+
+Under WSL another process sees a shared (dmabuf/handle) resource through
+dxgkrnl, which has no implicit sync: the dmabuf carries no fence and shared
+fences don't cross processes. A compositor could sample a buffer before the
+client's GPU work on it ran (a lab test: 167 of 200 frames wrong with only
+glFlush). A flush is where an application hands its rendering over, so when
+the flushed batches wrote a shared resource, wait for them before returning.
+---
+ src/gallium/drivers/d3d12/d3d12_batch.cpp      |  3 +++
+ src/gallium/drivers/d3d12/d3d12_batch.h        |  2 ++
+ src/gallium/drivers/d3d12/d3d12_context.h      |  2 ++
+ .../drivers/d3d12/d3d12_context_common.cpp     | 18 +++++++++++++++++-
+ 4 files changed, 24 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/drivers/d3d12/d3d12_batch.cpp b/src/gallium/drivers/d3d12/d3d12_batch.cpp
+index 61755a3..331eff9 100644
+--- a/src/gallium/drivers/d3d12/d3d12_batch.cpp
++++ b/src/gallium/drivers/d3d12/d3d12_batch.cpp
+@@ -253,6 +253,7 @@ d3d12_start_batch(struct d3d12_context *ctx, struct d3d12_batch *batch)
+ {
+    struct d3d12_screen *screen = d3d12_screen(ctx->base.screen);
+    d3d12_reset_batch(ctx, batch, OS_TIMEOUT_INFINITE);
++   batch->writes_shared = false;
+ 
+    /* Create or reset global command list */
+    if (ctx->cmdlist) {
+@@ -482,6 +483,8 @@ d3d12_batch_reference_resource(struct d3d12_batch *batch,
+    uint8_t*state = d3d12_batch_acquire_reference(batch, res->bo);
+ 
+    uint8_t new_data = write ? batch_bo_reference_written : batch_bo_reference_read;
++   if (write && (res->base.b.bind & PIPE_BIND_SHARED))
++      batch->writes_shared = true;
+    uint8_t old_data = (uint8_t)*state;
+    *state = (old_data | new_data);
+ }
+diff --git a/src/gallium/drivers/d3d12/d3d12_batch.h b/src/gallium/drivers/d3d12/d3d12_batch.h
+index c058565..5342de0 100644
+--- a/src/gallium/drivers/d3d12/d3d12_batch.h
++++ b/src/gallium/drivers/d3d12/d3d12_batch.h
+@@ -64,6 +64,8 @@ struct d3d12_batch {
+    struct d3d12_descriptor_heap *view_heap;
+    bool has_errors;
+    bool pending_memory_barrier;
++   /* The batch writes a resource shared with another process (dmabuf/handle). */
++   bool writes_shared;
+ 
+    uint64_t submit_id;
+    uint32_t ctx_id, ctx_index;
+diff --git a/src/gallium/drivers/d3d12/d3d12_context.h b/src/gallium/drivers/d3d12/d3d12_context.h
+index 3d4df5f..f18a56b 100644
+--- a/src/gallium/drivers/d3d12/d3d12_context.h
++++ b/src/gallium/drivers/d3d12/d3d12_context.h
+@@ -189,6 +189,8 @@ struct d3d12_context {
+    uint flags;
+    bool queries_disabled;
+    bool has_commands;
++   /* Last submitted batch that wrote a shared resource, until a flush waited for it. */
++   struct d3d12_fence *shared_write_fence;
+ 
+ #ifdef __cplusplus
+    ResourceStateManager *resource_state_manager;
+diff --git a/src/gallium/drivers/d3d12/d3d12_context_common.cpp b/src/gallium/drivers/d3d12/d3d12_context_common.cpp
+index 73e2d5d..4e488a7 100644
+--- a/src/gallium/drivers/d3d12/d3d12_context_common.cpp
++++ b/src/gallium/drivers/d3d12/d3d12_context_common.cpp
+@@ -73,6 +73,7 @@ d3d12_context_destroy(struct pipe_context *pctx)
+ {
+    struct d3d12_context *ctx = d3d12_context(pctx);
+ 
++   d3d12_fence_reference(&ctx->shared_write_fence, NULL);
+    if (ctx->priority_manager)
+    {
+       struct d3d12_screen *screen = d3d12_screen(pctx->screen);
+@@ -170,7 +171,10 @@ d3d12_flush_cmdlist(struct d3d12_context *ctx)
+    if (!ctx->has_commands)
+       return false;
+ 
+-   d3d12_end_batch(ctx, d3d12_current_batch(ctx));
++   struct d3d12_batch *ended = d3d12_current_batch(ctx);
++   d3d12_end_batch(ctx, ended);
++   if (ended->writes_shared && ended->fence)
++      d3d12_fence_reference(&ctx->shared_write_fence, ended->fence);
+ 
+    ctx->current_batch_idx++;
+    if (ctx->current_batch_idx == ARRAY_SIZE(ctx->batches))
+@@ -202,6 +206,18 @@ d3d12_flush(struct pipe_context *pipe,
+ 
+    bool flushed = d3d12_flush_cmdlist(ctx);
+ 
++#ifndef _WIN32
++   /* Under WSL a shared resource reaches another process (a Wayland compositor, another API)
++    * through dxgkrnl, which has no implicit sync: the dmabuf carries no fence and shared
++    * fences don't cross processes. A flush is where an application hands its rendering over
++    * (eglSwapBuffers, glFlush or a fence before attaching a buffer), so finish the GPU work
++    * that wrote shared resources before returning. */
++   if (ctx->shared_write_fence) {
++      d3d12_fence_finish(ctx->shared_write_fence, OS_TIMEOUT_INFINITE);
++      d3d12_fence_reference(&ctx->shared_write_fence, NULL);
++   }
++#endif
++
+    if (fence) {
+       if (flushed)
+          d3d12_fence_reference((struct d3d12_fence **)fence, batch->fence);

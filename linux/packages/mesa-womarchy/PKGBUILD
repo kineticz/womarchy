@@ -15,7 +15,7 @@ pkgname=(
 )
 pkgver=26.2.3
 _pkgver=${pkgver/[a-z]/-&}
-pkgrel=2.2
+pkgrel=2.3
 epoch=1
 pkgdesc="Open-source OpenGL drivers"
 url="https://www.mesa3d.org/"
@@ -75,6 +75,8 @@ options=(
 source=(
   0001-d3d12-reclaim-outside-pb-manager-locks.patch
   0002-d3d12-write-back-upload-heaps-on-wsl.patch
+  0003-d3d12-finish-shared-resource-writes-at-flush-on-WSL.patch
+  0004-d3d12-emulate-native-fence-fds-for-Chromium-GPU-proc.patch
   "https://archive.mesa3d.org/mesa-$_pkgver.tar.xz"{,.sig}
 )
 validpgpkeys=(
@@ -135,7 +137,7 @@ for _crate in "${!_crates[@]}"; do
   )
 done
 
-b2sums=('SKIP' 'SKIP'
+b2sums=('SKIP' 'SKIP' 'SKIP' 'SKIP'
   '53e451060bdc0df6ea8f7b5d3a23563c4bf56613c0871a91c5f0570649fcfe35e0dc1c0fc7834642621fc0772d0614b6a60acf196e82d4b77132629307c4a82e'
         'SKIP'
         '5fed0ea98fea7b72e9d015bddbc5337d936eb3a07f358e29421d081e76bf927bc270be5ef98e38b969b0a59a362c5b330554b446f81627821f52b2fbea0bb12c'
@@ -170,7 +172,7 @@ b2sums=('SKIP' 'SKIP'
         '93385f64103fdb482bec34c7912474ae7a5935948715e6eb9a54907e0db5c39f089f6cd393bab33c935c59a1bbb0f4099431f206343811c1a450554d96a35756')
 
 # https://docs.mesa3d.org/relnotes.html
-sha256sums=('SKIP' 'SKIP'
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP'
   '1628058a8d2c0615975de5a15ab7bbb9638c50000b5bed9456ff423ea034a81f'
             'SKIP'
             'b8aa498d22c9bbaf482329839bc5620c46be275a19a812e9a22a2b07529a642a'

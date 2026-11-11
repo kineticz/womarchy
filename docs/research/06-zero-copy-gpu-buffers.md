@@ -101,3 +101,38 @@ Packaged afterwards: aquamarine `0.15.1-1.11`, Hyprland `0.56.2-4.8` and womarch
 exist (opt out with `WOMARCHY_DMABUF=0` in `~/.config/environment.d/`). Not yet checked: other GPUs (ordering),
 Xwayland apps more widely, screen capture/recording, and memory use with many GPU windows. Note for lab tests: a fresh Edge profile signs in with the Windows
 account and starts syncing; use `--guest`.
+
+## Edge/Chromium flickered with stale frames (2026-11-11)
+
+In the desktop, Edge and its PWAs (Outlook, Teams) flashed old page contents, especially on reload. A lab
+compositor with a page that paints a frame counter as colour reproduced it: the displayed counter cycled
+through three old values (Chromium's three buffers) while the browser committed 60 frames a second.
+
+Cause, found by tracing Mesa (only ~7 flushes in a whole run) and reading Chromium's Wayland backend:
+- Chromium decides from the kernel version (≥ 6.0) that dmabufs carry implicit fences
+  (`WaylandConnection::UseImplicitSyncInterop`). It then tells the GPU process that acquire fences are
+  supported, and `GbmSurfacelessWayland::Present` **skips its `glFlush()`**, expecting to ship each frame
+  with a native acquire fence.
+- It only creates that fence with `EGL_ANDROID_native_fence_sync`, which d3d12 can't offer on WSL (no
+  sync_file for D3D12 work). With neither fence nor flush, the frame's GPU work stays queued until some
+  later flush, and Hyprland samples the buffer's previous contents. (`DMA_BUF_IOCTL_EXPORT/IMPORT_SYNC_FILE`
+  on the dxgkrnl fds fail with ENOTTY too; harmless once the frames are complete.)
+- Separately, even with a flush, nothing orders the compositor's read after the client's GPU work: a
+  two-process GBM test sampled the wrong frame 167 of 200 times with only `glFlush`.
+
+Fix, [Mesa 0003](../../patches/mesa/0003-d3d12-finish-shared-resource-writes-at-flush-on-WSL.patch) and
+[0004](../../patches/mesa/0004-d3d12-emulate-native-fence-fds-for-Chromium-GPU-proc.patch):
+- A flush that submitted writes to a shared resource waits for them (two-process test: 0/200 wrong; GTK GL
+  window 56–57 FPS either way).
+- In Chromium/Electron GPU processes only (`--type=gpu-process`; `D3D12_WSL_NATIVE_FENCE_FD=0/1`
+  overrides), d3d12 advertises native fence fds: exporting one waits for the fence and returns an
+  already-readable eventfd; importing one waits for the fd on the CPU. Other processes (Hyprland, GTK,
+  Xwayland) see no change.
+
+Result in the desktop session (guest Edge, counter page): stock Mesa showed 72 of 120 sampled frames older
+than the previous one; patched, 3 of 120, all within the first frames after start. Pages also start
+faster (stock stalled up to 7 s after start). Interim workaround until the package is installed:
+`--disable-gpu-compositing` for Edge (flags file and PWA launchers).
+
+Pitfall from the investigation: every guest Edge profile is ~200 MB in `/tmp` (tmpfs); delete test
+profiles, or a full `/tmp` produces misleading stalls and empty screenshots.
