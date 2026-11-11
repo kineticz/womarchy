@@ -96,8 +96,30 @@ an fd for, so GTK falls back quietly to a GL texture. GBM-allocated buffers (Hyp
 `GSK_RENDERER=ngl` is now `GSK_RENDERER=gl` (the generator and `/etc/profile.d`): GTK 4.24 renamed it and
 warned on every start.
 
+## Every batch asked the host for the memory budget
+
+Profiling glxgears (Xwayland, GLX software winsys on d3d12, ~40 FPS against ~88 with llvmpipe) showed
+~17% of the main thread in `D3DKMTQueryVideoMemoryInfo`. `d3d12_process_batch_residency()` reads the
+adapter's memory budget at the start of every batch and again at the top of its loop, before anything has
+changed; on WSL each read is two ioctls to the host. That cost is paid by every GL client, Hyprland included,
+on every flush.
+
+[Mesa 0008](../../patches/mesa/0008-d3d12-don-t-query-the-memory-budget-twice-for-every-.patch) keeps the
+last value in the screen (under `submit_mutex`) and reuses it at the start of a batch for up to 10 ms.
+Making resources resident or evicting them invalidates it, so a cached value is only used while the
+process's residency is unchanged; the loop still re-reads after evicting. Benchmark
+(`~/src/zc-spike/flushbench/fb.c`: glClear + glFlush on a 256² FBO, surfaceless EGL, 2000 flushes, 3 runs):
+165 → 110 µs wall and 68 → 55 µs CPU per flush. What remains is submit, signal and the GPU wait.
+
+The glxgears frame rate itself is too noisy on a shared desktop to show the gain. The rest of its cost is the
+GLX software winsys: Xwayland GLX can't use DRI3 here ("failed to load driver: kms_swrast"), so every frame is
+read back from the GPU and sent to the X server.
+
 ## Other findings, not fixed yet
 
+- Xwayland GL apps (GLX) render through the software winsys: d3d12 renders, each frame is read back and
+  sent with XPutImage (glxgears ~40 FPS against ~88 with llvmpipe). Every GLX app prints
+  "failed to load driver: kms_swrast". A DRI3 path for GLX on the vgem node would avoid the read-back.
 - Edge stalls for 4–9 s in about half of its starts, with or without these patches (12 runs: 6 of 12),
   with `--disable-gpu-sandbox`, and also with `--disable-gpu` (2 of 6): it is not a graphics problem. All
   threads of the browser, GPU and renderer processes sleep in futex waits until it resolves; no error in the

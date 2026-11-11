@@ -1,0 +1,174 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kaiyin Zhong <kaiyin@zhong.science>
+Date: Wed, 11 Nov 2026 15:10:06 +0100
+Subject: [PATCH] d3d12: don't query the memory budget twice for every batch
+
+d3d12_process_batch_residency() read the adapter's memory budget at the
+start of every batch and again at the top of its loop, before anything had
+changed. On WSL each read is two D3DKMT ioctls to the host, which was about
+a third of the CPU time of a glFlush in a small benchmark (glClear + glFlush
+on an FBO: 165 us -> 110 us per flush) and ~17% of glxgears' main thread.
+
+Keep the last value in the screen (under submit_mutex) and reuse it at the
+start of a batch for up to 10 ms. Making resources resident or evicting them
+invalidates it, so a cached value is only used while this process's
+residency is unchanged; the loop still re-reads after evicting.
+
+Generated-by: LLM
+---
+ src/gallium/drivers/d3d12/d3d12_residency.cpp | 57 +++++++++++++++----
+ src/gallium/drivers/d3d12/d3d12_screen.h      |  3 +
+ 2 files changed, 49 insertions(+), 11 deletions(-)
+
+diff --git a/src/gallium/drivers/d3d12/d3d12_residency.cpp b/src/gallium/drivers/d3d12/d3d12_residency.cpp
+index 2093f16..11110a7 100644
+--- a/src/gallium/drivers/d3d12/d3d12_residency.cpp
++++ b/src/gallium/drivers/d3d12/d3d12_residency.cpp
+@@ -28,6 +28,36 @@
+ #include "d3d12_screen.h"
+ #include "util/os_time.h"
+ 
++/* Querying the memory budget is a round trip to the host on WSL (two D3DKMT ioctls), and every batch
++ * did it at least twice: a large part of the CPU time of a frame for small apps. The value at the
++ * start of a batch may be up to this old; making resources resident or evicting them invalidates it,
++ * so a cached value is only used while this process's residency is unchanged. */
++#define D3D12_RESIDENCY_MEM_INFO_MAX_AGE_US 10000
++
++static void
++residency_mem_info_invalidate(struct d3d12_screen *screen)
++{
++   screen->residency_mem_info_time = 0;
++}
++
++static void
++residency_mem_info(struct d3d12_screen *screen, struct d3d12_memory_info *out, int64_t now, bool allow_cached)
++{
++   if (!allow_cached || !screen->residency_mem_info_time ||
++       now - screen->residency_mem_info_time > D3D12_RESIDENCY_MEM_INFO_MAX_AGE_US) {
++      screen->get_memory_info(screen, &screen->residency_mem_info);
++      screen->residency_mem_info_time = now ? now : 1;
++   }
++   *out = screen->residency_mem_info;
++}
++
++static void
++residency_evict(struct d3d12_screen *screen, unsigned count, ID3D12Pageable **pageables)
++{
++   screen->dev->Evict(count, pageables);
++   residency_mem_info_invalidate(screen);
++}
++
+ #include <dxguids/dxguids.h>
+ 
+ static constexpr unsigned residency_batch_size = 128;
+@@ -63,13 +93,13 @@ evict_aged_allocations(struct d3d12_screen *screen, uint64_t completed_fence, in
+       list_del(&bo->residency_list_entry);
+ 
+       if (num_pending_evictions == residency_batch_size) {
+-         screen->dev->Evict(num_pending_evictions, to_evict);
++         residency_evict(screen, num_pending_evictions, to_evict);
+          num_pending_evictions = 0;
+       }
+    }
+ 
+    if (num_pending_evictions)
+-      screen->dev->Evict(num_pending_evictions, to_evict);
++      residency_evict(screen, num_pending_evictions, to_evict);
+ }
+ 
+ static void
+@@ -98,13 +128,13 @@ evict_to_fence_or_budget(struct d3d12_screen *screen, uint64_t target_fence, uin
+       current_usage -= bo->estimated_size;
+ 
+       if (num_pending_evictions == residency_batch_size) {
+-         screen->dev->Evict(num_pending_evictions, to_evict);
++         residency_evict(screen, num_pending_evictions, to_evict);
+          num_pending_evictions = 0;
+       }
+    }
+ 
+    if (num_pending_evictions)
+-      screen->dev->Evict(num_pending_evictions, to_evict);
++      residency_evict(screen, num_pending_evictions, to_evict);
+ }
+ 
+ static constexpr int64_t eviction_grace_period_seconds_min = 1;
+@@ -164,11 +194,11 @@ void
+ d3d12_process_batch_residency(struct d3d12_screen *screen, struct d3d12_batch *batch)
+ {
+    d3d12_memory_info mem_info;
+-   screen->get_memory_info(screen, &mem_info);
++   int64_t current_time = os_time_get();
++   residency_mem_info(screen, &mem_info, current_time, true);
+ 
+    uint64_t completed_fence_value = screen->fence->GetCompletedValue();
+    uint64_t pending_fence_value = screen->fence_value + 1;
+-   int64_t current_time = os_time_get();
+    int64_t grace_period = get_eviction_grace_period(&mem_info);
+ 
+    /* Gather base bos for the batch */
+@@ -195,9 +225,11 @@ d3d12_process_batch_residency(struct d3d12_screen *screen, struct d3d12_batch *b
+    uint64_t batch_memory_size = 0;
+    unsigned batch_count = 0;
+    ID3D12Pageable *to_make_resident[residency_batch_size];
++   bool first_pass = true;
+    while (true) {
+-      /* Refresh memory stats */
+-      screen->get_memory_info(screen, &mem_info);
++      /* Refresh memory stats (the first pass uses the value read above: nothing changed since) */
++      residency_mem_info(screen, &mem_info, os_time_get(), first_pass);
++      first_pass = false;
+ 
+       int64_t available_memory = (int64_t)mem_info.budget - (int64_t)mem_info.usage;
+ 
+@@ -224,8 +256,10 @@ d3d12_process_batch_residency(struct d3d12_screen *screen, struct d3d12_batch *b
+          if (batch_count) {
+             hr = screen->dev->EnqueueMakeResident(D3D12_RESIDENCY_FLAG_NONE, batch_count, to_make_resident,
+                screen->residency_fence, screen->residency_fence_value + 1);
+-            if (SUCCEEDED(hr))
++            if (SUCCEEDED(hr)) {
+                ++screen->residency_fence_value;
++               residency_mem_info_invalidate(screen);
++            }
+          }
+ 
+          if (SUCCEEDED(hr)) {
+@@ -288,14 +322,14 @@ evict_periodic_trim_allocations(struct d3d12_screen *screen)
+          list_del(&bo->residency_list_entry);
+ 
+          if (num_pending_evictions == residency_batch_size) {
+-            screen->dev->Evict(num_pending_evictions, to_evict);
++            residency_evict(screen, num_pending_evictions, to_evict);
+             num_pending_evictions = 0;
+          }
+       }
+    }
+ 
+    if (num_pending_evictions)
+-      screen->dev->Evict(num_pending_evictions, to_evict);
++      residency_evict(screen, num_pending_evictions, to_evict);
+ }
+ 
+ static void APIENTRY d3d12_residency_periodic_trim_callback(const D3D12_TRIM_NOTIFICATION *pData)
+@@ -424,6 +458,7 @@ d3d12_promote_to_permanent_residency(
+             }
+          }
+          assert(SUCCEEDED(hr));
++         residency_mem_info_invalidate(screen);
+       }
+    };
+    
+diff --git a/src/gallium/drivers/d3d12/d3d12_screen.h b/src/gallium/drivers/d3d12/d3d12_screen.h
+index d929fdf..53612b9 100644
+--- a/src/gallium/drivers/d3d12/d3d12_screen.h
++++ b/src/gallium/drivers/d3d12/d3d12_screen.h
+@@ -97,6 +97,9 @@ struct d3d12_screen {
+    uint64_t residency_fence_value;
+    unsigned num_evictions;
+    uint64_t total_bytes_evicted;
++   /* Memory budget as last read for residency processing (submit_mutex), and when (0: stale) */
++   struct d3d12_memory_info residency_mem_info;
++   int64_t residency_mem_info_time;
+ 
+    /* Periodic trim notification residency */
+    uint64_t periodic_trim_notification_index;      /* Incremented each callback invocation. */
