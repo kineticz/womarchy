@@ -80,12 +80,15 @@ g=/usr/lib/systemd/user-environment-generators/60-womarchy-gpu
 t "with dxg: d3d12" bash -c "WOMARCHY_DXG=/etc/hostname-not $g | grep -q GALLIUM || true; touch /tmp/dxg; env -i WOMARCHY_DXG=/tmp/dxg $g | grep -qx GALLIUM_DRIVER=d3d12"
 t "without dxg: no GALLIUM_DRIVER" bash -c "! env -i WOMARCHY_DXG=/nonexistent $g | grep -q GALLIUM"
 t "caller's value wins" bash -c "! env -i GALLIUM_DRIVER=llvmpipe WOMARCHY_DXG=/tmp/dxg $g | grep -q GALLIUM"
+t "old GSK_RENDERER=ngl becomes gl" bash -c "env -i GSK_RENDERER=ngl WOMARCHY_DXG=/nonexistent $g | grep -qx GSK_RENDERER=gl"
+t "other GSK_RENDERER kept" bash -c "! env -i GSK_RENDERER=cairo WOMARCHY_DXG=/nonexistent $g | grep -q GSK"
 mkdir -p /tmp/drm-vgem/devices/faux/vgem /tmp/drm-vgem/class/renderD128 /tmp/drm-none
 ln -sfn ../../devices/faux/vgem /tmp/drm-vgem/class/renderD128/device
 t "vgem node: dmabuf env" bash -c "env -i WOMARCHY_DXG=/tmp/dxg WOMARCHY_DRM_SYSFS=/tmp/drm-vgem/class $g | grep -qx WOMARCHY_RENDER_NODE=/dev/dri/renderD128"
 t "vgem node: loader override" bash -c "env -i WOMARCHY_DXG=/tmp/dxg WOMARCHY_DRM_SYSFS=/tmp/drm-vgem/class $g | grep -qx MESA_LOADER_DRIVER_OVERRIDE=kms_swrast"
 t "no vgem node: no dmabuf env" bash -c "! env -i WOMARCHY_DXG=/tmp/dxg WOMARCHY_DRM_SYSFS=/tmp/drm-none $g | grep -q -e DMABUF -e MESA_LOADER"
 t "WOMARCHY_DMABUF=0 opts out" bash -c "! env -i WOMARCHY_DMABUF=0 WOMARCHY_DXG=/tmp/dxg WOMARCHY_DRM_SYSFS=/tmp/drm-vgem/class $g | grep -q -e DMABUF -e MESA_LOADER"
+t "reload with d3d12 already set: dmabuf env" bash -c "env -i GALLIUM_DRIVER=d3d12 WOMARCHY_DXG=/tmp/dxg WOMARCHY_DRM_SYSFS=/tmp/drm-vgem/class $g | grep -qx WOMARCHY_DMABUF=1"
 t "no dxg: no dmabuf env" bash -c "! env -i WOMARCHY_DXG=/nonexistent WOMARCHY_DRM_SYSFS=/tmp/drm-vgem/class $g | grep -q DMABUF"
 t "old environment.d file removed" test ! -e /etc/environment.d/10-womarchy-gpu.conf
 printf '%s\n' '# Managed by womarchy (wsl/gpu.sh).' 'export GSK_RENDERER="${GSK_RENDERER:-ngl}"' >/etc/profile.d/womarchy-gpu.sh

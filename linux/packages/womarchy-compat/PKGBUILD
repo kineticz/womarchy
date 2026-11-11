@@ -18,7 +18,7 @@
 # linux/overlay into womarchy-overlay.tar.gz next to this PKGBUILD.
 
 pkgname=womarchy-compat
-pkgver=0.4.5
+pkgver=0.4.6
 pkgrel=1
 pkgdesc='Omarchy on WSL: bootloader/snapshot stand-ins and the womarchy WSL overlay'
 arch=(any)

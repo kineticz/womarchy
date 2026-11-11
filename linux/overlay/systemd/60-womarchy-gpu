@@ -11,10 +11,14 @@ d3d12=
 if [ -z "${GALLIUM_DRIVER+x}" ] && [ -e "$dxg" ]; then
   echo GALLIUM_DRIVER=d3d12
   d3d12=1
+elif [ "${GALLIUM_DRIVER-}" = d3d12 ]; then
+  d3d12=1  # already imported (daemon-reload of a running manager)
 fi
 # GTK4: the GL renderer (works on d3d12 and llvmpipe); its Vulkan path would run on
 # the non-conformant Dozen driver.
-if [ -z "${GSK_RENDERER+x}" ]; then
+# GTK 4.24 renamed "ngl" (womarchy's old default) to "gl" and warns on the old name; a
+# long-running user manager keeps a value an earlier login shell imported, so replace it.
+if [ -z "${GSK_RENDERER+x}" ] || [ "$GSK_RENDERER" = ngl ]; then
   echo GSK_RENDERER=gl
 fi
 
