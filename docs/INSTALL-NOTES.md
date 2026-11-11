@@ -79,7 +79,7 @@ Details are in [linux/image/README.md](../linux/image/README.md) and [WORKLOG.md
   - Enabled: `docker.socket` (`WOMARCHY_DOCKER=0` in `/etc/womarchy/config` disables it) and `systemd-oomd`.
   - WSL keeps generating `/etc/resolv.conf`.
   - The `dns` key is removed from `/etc/docker/daemon.json`, because it depends on resolved.
-- **GPU:** `GALLIUM_DRIVER=d3d12` (only when `/dev/dxg` exists) and `GSK_RENDERER=ngl`: the user environment generator `60-womarchy-gpu` (user manager) and `/etc/profile.d/womarchy-gpu.sh` (login shells); `womarchy-session` applies the same `/dev/dxg` rule.
+- **GPU:** `GALLIUM_DRIVER=d3d12` (only when `/dev/dxg` exists) and `GSK_RENDERER=gl`: the user environment generator `60-womarchy-gpu` (user manager) and `/etc/profile.d/womarchy-gpu.sh` (login shells); `womarchy-session` applies the same `/dev/dxg` rule.
 - **Audio** (see WORKLOG D.5 for the cause):
   - PipeWire loads pulse-tunnel sink and source modules to `unix:/mnt/wslg/PulseServer` (`/etc/pipewire/pipewire.conf.d/50-womarchy-wslg.conf`).
   - **(script)** A drop-in for WSL's generated `wslg-session.service` stops it from symlinking WSLg's `pulse/native` over pipewire-pulse's socket.

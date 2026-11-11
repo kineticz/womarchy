@@ -80,9 +80,23 @@ display-device match unless the device is on the PCI bus. Verified with a minima
 X11 surface extensions) and a GTK window on the Vulkan renderer: both crash with the stock layer and work
 with the fix. Before the package update, `NODEVICE_SELECT=1` is a workaround.
 
+## GTK exported GL textures as dmabufs without an fd
+
+GTK 4.24 exports GL textures as dmabufs when `EGL_MESA_image_dma_buf_export` is present (GtkGLArea,
+`gsk_renderer_render_texture`). d3d12 can only export resources created shareable, so the fd query failed,
+but `eglExportDMABUFImageMESA` ignored that and returned `EGL_TRUE` with `fds[0]` unset (reproducer:
+`~/src/zc-spike/export/q.c`). GTK then built a dmabuf texture from an uninitialized fd: a
+`planes[0].fd > 0` assertion on every GtkGLArea frame, an empty `render_texture` ("Failed to download …
+dmabuf texture"), and `g_close()` of a garbage fd number, which can close an unrelated file.
+
+Fix, [Mesa 0007](../../patches/mesa/0007-egl-dri2-don-t-report-dmabuf-export-of-images-the-dr.patch): the
+export fails with `EGL_BAD_ALLOC` when there is no fd, and the query only reports images the driver can give
+an fd for, so GTK falls back quietly to a GL texture. GBM-allocated buffers (Hyprland, Edge) still export.
+
+`GSK_RENDERER=ngl` is now `GSK_RENDERER=gl` (the generator and `/etc/profile.d`): GTK 4.24 renamed it and
+warned on every start.
+
 ## Other findings, not fixed yet
 
-- GTK's GL `render_texture` → `save_to_png` (texture download) returns noise under d3d12, also with stock
-  Mesa. On-screen rendering is correct.
-- Edge with `--disable-gpu-sandbox` stalls 4–9 s at start-up; with the default sandbox it starts cleanly
-  (4/4 runs at ~65 FPS from the first second).
+- Edge stalls for 4–9 s in about half of its starts, with or without these patches (12 runs: 6 of 12),
+  and with `--disable-gpu-sandbox` too. No error in its log and no GPU-process restart.

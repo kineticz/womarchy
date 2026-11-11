@@ -170,7 +170,7 @@ It needs **nothing global**: no custom kernel, no `.wslconfig`, no `.wslgconfig`
 | L6 | Mesa d3d12 deadlock (E5) | Blocker | Patch written; ship patched Mesa in the womarchy repo until an upstream merge request lands. |
 | L7 | d3d12 is not auto-selected on Arch (llvmpipe default) | Correctness | Set `GALLIUM_DRIVER=d3d12` session-wide (optionally `MESA_D3D12_DEFAULT_ADAPTER_NAME`). |
 | L8 | GLES tops out at 3.1 on d3d12; no native fence fds | Minor | Hyprland already falls back to 3.0 and implicit sync (verified in E4). |
-| L9 | Vulkan is Dozen 1.2, non-conformant | Minor | Default GTK4 to its GL renderer (`GSK_RENDERER=ngl`); Vulkan apps are best effort. |
+| L9 | Vulkan is Dozen 1.2, non-conformant | Minor | Default GTK4 to its GL renderer (`GSK_RENDERER=gl`; `ngl` before GTK 4.24); Vulkan apps are best effort. |
 | L10 | Win+L and Ctrl+Alt+Del cannot be intercepted on Windows | UX | Omarchy overlay rebinds Super+L (layout toggle) and Ctrl+Alt+Del (close all). All other Super chords are captured by the viewer's `WH_KEYBOARD_LL` hook while it has focus. Game Bar (Win+G) should be disabled by the user, or Omarchy's group binding moved. |
 | L11 | hvsocket bandwidth (~1.2–2 GB/s) is below raw 4K60 (2 GB/s per monitor) | Performance at 4K | Damage tracking (most frames are small); fast lossless compression (LZ4/QOI) for full-screen bursts; **shared-memory frame ring over WSLg's section-backed virtio-fs DAX share** (Phase 0 spike); H.264/HEVC 4:4:4 via NVENC or d3d12 VA-API as a last resort. |
 | L12 | Omarchy assumes bare metal: Limine, snapper/btrfs, SDDM, Plymouth, NetworkManager, Bluetooth, power | Install blocker | Overlay: a `womarchy-compat` package `provides` limine/snapper; a filtered `omarchy-apply-system`; skip hardware leaves; WSL-specific services, audio, GPU and keyboard leaves. No fork. |
@@ -194,7 +194,7 @@ See [WORKLOG.md](WORKLOG.md) §15–24.
 - L3: the viewer.
 - L6: Mesa patch 0001.
 - L7: session env.
-- L9: `GSK_RENDERER=ngl`.
+- L9: `GSK_RENDERER=gl` (`ngl` before GTK 4.24).
 - L10: keyboard hook plus the overlay's rebinds.
 - L11: DAX shared memory. Zero-copy for frames; 60 FPS measured.
 - L12, L15, L21: the image agent's overlay.

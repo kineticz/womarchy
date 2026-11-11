@@ -89,7 +89,7 @@ if (( EUID == 0 )); then
   [[ ! -e /etc/environment.d/10-womarchy-gpu.conf ]] && pass "no unconditional GALLIUM_DRIVER in environment.d" ||
     fail "/etc/environment.d/10-womarchy-gpu.conf still sets GALLIUM_DRIVER unconditionally"
   with=$(env -i "$gen"); without=$(env -i WOMARCHY_DXG=/nonexistent "$gen")
-  [[ $with == *GALLIUM_DRIVER=d3d12* && $without != *GALLIUM_DRIVER* && $without == *GSK_RENDERER=ngl* ]] &&
+  [[ $with == *GALLIUM_DRIVER=d3d12* && $without != *GALLIUM_DRIVER* && $without == *GSK_RENDERER=gl* ]] &&
     pass "generator: d3d12 only with /dev/dxg" || fail "generator output: with dxg [$with] without [$without]"
   check "pipewire WSLg tunnel config" test -f /etc/pipewire/pipewire.conf.d/50-womarchy-wslg.conf
   if grep -q '^XKBLAYOUT=' /etc/vconsole.conf; then
@@ -154,8 +154,8 @@ else
   command -v hyprctl >/dev/null && pass "hyprctl present ($(hyprctl version -j 2>/dev/null | jq -r .tag 2>/dev/null || echo 'no instance'))" || warn "hyprctl absent"
 
   ume=$(systemctl --user show-environment 2>/dev/null)
-  [[ -e /dev/dxg ]] && grep -qx GALLIUM_DRIVER=d3d12 <<<"$ume" && grep -qx GSK_RENDERER=ngl <<<"$ume" &&
-    pass "user manager env: GALLIUM_DRIVER=d3d12 GSK_RENDERER=ngl (from the generator)" ||
+  [[ -e /dev/dxg ]] && grep -qx GALLIUM_DRIVER=d3d12 <<<"$ume" && grep -qx GSK_RENDERER=gl <<<"$ume" &&
+    pass "user manager env: GALLIUM_DRIVER=d3d12 GSK_RENDERER=gl (from the generator)" ||
     fail "user manager env: $(grep -E '^(GALLIUM_DRIVER|GSK_RENDERER)=' <<<"$ume" | paste -sd' ')"
   # GPU: GALLIUM_DRIVER from the login environment (profile.d), not set by hand.
   gd=$(bash -lc 'echo "$GALLIUM_DRIVER"')

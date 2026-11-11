@@ -15,7 +15,7 @@ fi
 # GTK4: the GL renderer (works on d3d12 and llvmpipe); its Vulkan path would run on
 # the non-conformant Dozen driver.
 if [ -z "${GSK_RENDERER+x}" ]; then
-  echo GSK_RENDERER=ngl
+  echo GSK_RENDERER=gl
 fi
 
 # Zero-copy GPU buffers (docs/research/06-zero-copy-gpu-buffers.md). Newer WSL kernels have

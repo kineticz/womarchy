@@ -166,7 +166,7 @@ Each spike that touches the shared WSL VM is flagged ⚠ and needs the user's ap
    - skip `config/snapper.sh`, `config/enable-services.sh` (replaced), `config/firewall.sh` (opt-in), all of `hardware/`, and `login/`;
    - then run the WSL leaves: `wsl/enable-services.sh` (docker optional; mask NetworkManager, resolved, networkd, sddm, cups, avahi, power-profiles), `wsl/gpu.sh`, `wsl/audio.sh` (PipeWire pulse-tunnel), `wsl/keyboard-locale.sh` (vconsole/locale from Windows), `wsl/docker-dns.sh`.
 4. **User finalize:** upstream `omarchy-provision-user --first-install` with `OMARCHY_SETUP_CONTEXT=wsl`, then the WSL user overlay:
-   - `~/.config/uwsm/env.d/10-womarchy`: `GALLIUM_DRIVER=d3d12`, `GSK_RENDERER=ngl`, backend env;
+   - `~/.config/uwsm/env.d/10-womarchy`: `GALLIUM_DRIVER=d3d12`, `GSK_RENDERER=gl`, backend env;
    - `~/.config/hypr/bindings.lua`: rebind Super+L → Super+Alt+L and Ctrl+Alt+Del → Super+Ctrl+Alt+Backspace; keep Win-chord bindings;
    - `~/.config/omarchy/shell.json`: idle lock off; drop the Wi-Fi, Bluetooth, battery and power widgets;
    - `~/.config/omarchy/extensions/omarchy-menu.jsonc`: Shutdown → "Exit to Windows", hide suspend/hibernate/firmware/snapshots;

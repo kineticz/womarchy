@@ -24,6 +24,6 @@ cat >/etc/profile.d/womarchy-gpu.sh <<'CONF'
 if [ -z "${GALLIUM_DRIVER+x}" ] && [ -e /dev/dxg ]; then
   export GALLIUM_DRIVER=d3d12
 fi
-export GSK_RENDERER="${GSK_RENDERER:-ngl}"
+export GSK_RENDERER="${GSK_RENDERER:-gl}"
 CONF
 chmod 0644 /etc/profile.d/womarchy-gpu.sh

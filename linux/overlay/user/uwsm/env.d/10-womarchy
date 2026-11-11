@@ -2,7 +2,7 @@
 # starts (after Omarchy's /usr/share/uwsm/env.d/10-omarchy). Managed by
 # womarchy-provision-user; put personal additions in another env.d file.
 
-# GPU: GALLIUM_DRIVER=d3d12 (only with /dev/dxg) and GSK_RENDERER=ngl come from
+# GPU: GALLIUM_DRIVER=d3d12 (only with /dev/dxg) and GSK_RENDERER=gl come from
 # the 60-womarchy-gpu user environment generator, i.e. from the user manager's
 # environment, which uwsm starts from.
 
