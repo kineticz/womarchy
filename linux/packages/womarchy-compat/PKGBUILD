@@ -11,13 +11,14 @@
 #  - Kernels never belong in a WSL distro (WSL boots Microsoft's kernel).
 #  - Overlay: womarchy-apply-system, womarchy-provision-user, womarchy-rollback,
 #    the WSL leaves (/usr/lib/womarchy/wsl), user templates (/usr/lib/womarchy/user),
-#    OOBE, and pacman hooks (rollback points, Mesa/LLVM guard, WSLg app hiding).
+#    OOBE, and pacman hooks (rollback points, Mesa/LLVM guard, LLVM copy without
+#    GNU_UNIQUE symbols for the Windows GPU driver, WSLg app hiding).
 #
 # Local source: prepare-sources.sh (run by linux/packages/build-all.sh) packs
 # linux/overlay into womarchy-overlay.tar.gz next to this PKGBUILD.
 
 pkgname=womarchy-compat
-pkgver=0.4.2
+pkgver=0.4.3
 pkgrel=1
 pkgdesc='Omarchy on WSL: bootloader/snapshot stand-ins and the womarchy WSL overlay'
 arch=(any)
@@ -44,6 +45,9 @@ package() {
   install -Dm755 "$o/wslg-hide-apps" "$pkgdir/usr/lib/womarchy/wslg-hide-apps"
   install -Dm755 "$o/rollback-point" "$pkgdir/usr/lib/womarchy/rollback-point"
   install -Dm755 "$o/mesa-llvm-guard" "$pkgdir/usr/lib/womarchy/mesa-llvm-guard"
+  # LLVM copy without GNU_UNIQUE symbols, ahead of /usr/lib (hook 10-womarchy-llvm-unique)
+  install -Dm755 "$o/llvm-deunique" "$pkgdir/usr/lib/womarchy/llvm-deunique"
+  install -Dm644 "$o/ld.so.conf.d/womarchy-llvm.conf" "$pkgdir/usr/lib/ld.so.conf.d/womarchy-llvm.conf"
   for f in "$o"/hooks/*.hook; do
     install -Dm644 "$f" "$pkgdir/usr/share/libalpm/hooks/${f##*/}"
   done

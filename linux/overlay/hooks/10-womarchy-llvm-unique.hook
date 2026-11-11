@@ -1,0 +1,20 @@
+# womarchy: keep a copy of LLVM without GNU_UNIQUE symbols ahead of /usr/lib, so the Windows GPU
+# driver's own LLVM (e.g. Intel IGC on WSL) doesn't bind to Mesa's and crash; see
+# /usr/lib/womarchy/llvm-deunique. Runs before glibc's ldconfig hook (11-).
+[Trigger]
+Type = Path
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Target = usr/lib/libLLVM.so.*
+
+[Trigger]
+Type = Package
+Operation = Install
+Operation = Upgrade
+Target = womarchy-compat
+
+[Action]
+Description = Preparing LLVM for the Windows GPU driver...
+When = PostTransaction
+Exec = /usr/lib/womarchy/llvm-deunique

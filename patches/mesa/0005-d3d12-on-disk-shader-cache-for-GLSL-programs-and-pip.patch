@@ -1,0 +1,354 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kaiyin Zhong <kaiyin@zhong.science>
+Date: Wed, 11 Nov 2026 13:35:57 +0100
+Subject: [PATCH] d3d12: on-disk shader cache for GLSL programs and pipeline
+ states
+
+d3d12 had no shader cache at all, so every process linked all of its GLSL
+programs again and had the GPU driver compile all of its pipelines again. On
+WSL with an Intel GPU a GTK 4 window's first frame took ~1.4 s, every time.
+
+- Create a disk cache per screen (identity: Mesa build id, adapter ids, driver
+  version, D3D12_DEBUG) and return it from get_disk_shader_cache, which turns
+  on st/mesa's cache of linked programs (and GL_ARB_get_program_binary).
+- Store driver-compiled graphics pipeline states (GetCachedBlob) in the same
+  cache, keyed by the whole pipeline description with shader bytecode and the
+  root signature key; the runtime validates a cached blob, and a rejected one
+  is simply compiled again and replaced.
+
+GTK 4 window, warm cache: first frame ~200 ms instead of ~1.4 s; output
+pixel-identical to an uncached run.
+---
+ .../drivers/d3d12/d3d12_pipeline_state.cpp    | 177 ++++++++++++++++--
+ .../drivers/d3d12/d3d12_root_signature.cpp    |   6 +
+ .../drivers/d3d12/d3d12_root_signature.h      |   4 +
+ src/gallium/drivers/d3d12/d3d12_screen.cpp    |  39 ++++
+ src/gallium/drivers/d3d12/d3d12_screen.h      |   2 +
+ 5 files changed, 214 insertions(+), 14 deletions(-)
+
+diff --git a/src/gallium/drivers/d3d12/d3d12_pipeline_state.cpp b/src/gallium/drivers/d3d12/d3d12_pipeline_state.cpp
+index 7dab6a2..18aa93c 100644
+--- a/src/gallium/drivers/d3d12/d3d12_pipeline_state.cpp
++++ b/src/gallium/drivers/d3d12/d3d12_pipeline_state.cpp
+@@ -37,7 +37,11 @@
+ #include <directx/d3dx12_pipeline_state_stream.h>
+ #endif
+ 
++#include "d3d12_root_signature.h"
++
++#include "util/disk_cache.h"
+ #include "util/hash_table.h"
++#include "util/mesa-blake3.h"
+ #include "util/set.h"
+ #include "util/u_memory.h"
+ #include "util/u_prim.h"
+@@ -286,6 +290,45 @@ copy_input_attribs(const D3D12_INPUT_ELEMENT_DESC *ves_elements, D3D12_INPUT_ELE
+    }
+ }
+ 
++/* Driver-compiled pipeline states (ID3D12PipelineState::GetCachedBlob) in the screen's disk cache. Every
++ * new process otherwise has the GPU driver compile all of its pipelines again (on WSL with Intel, IGC:
++ * hundreds of ms for a GTK window's first frame). The key covers the whole pipeline description; the
++ * runtime and driver also validate a cached blob against the description and driver version, and a
++ * rejected blob just means compiling as before. */
++static void
++hash_bytecode(struct mesa_blake3 *c, const D3D12_SHADER_BYTECODE &b)
++{
++   _mesa_blake3_update(c, &b.BytecodeLength, sizeof(b.BytecodeLength));
++   if (b.pShaderBytecode)
++      _mesa_blake3_update(c, b.pShaderBytecode, b.BytecodeLength);
++}
++
++static void
++hash_string(struct mesa_blake3 *c, const char *str)
++{
++   if (str)
++      _mesa_blake3_update(c, str, strlen(str) + 1);
++   else
++      _mesa_blake3_update(c, "", 1);
++}
++
++static bool
++root_signature_key_for(struct d3d12_context *ctx, ID3D12RootSignature *sig,
++                       struct d3d12_root_signature_key *key)
++{
++   hash_table_foreach(ctx->root_signature_cache, entry) {
++      if (d3d12_root_signature_from_entry(entry) == sig) {
++         memcpy(key, entry->key, sizeof(*key));
++         return true;
++      }
++   }
++   return false;
++}
++
++static ID3D12PipelineState *
++create_gfx_pso_cached(struct d3d12_context *ctx, struct d3d12_screen *screen,
++                      CD3DX12_PIPELINE_STATE_STREAM3 &pso_desc, HRESULT *phr);
++
+ static ID3D12PipelineState *
+ create_gfx_pipeline_state(struct d3d12_context *ctx)
+ {
+@@ -407,30 +450,136 @@ create_gfx_pipeline_state(struct d3d12_context *ctx)
+ 
+    pso_desc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+ 
+-   ID3D12PipelineState *ret;
+-
+    HRESULT hr;
++   ID3D12PipelineState *ret = create_gfx_pso_cached(ctx, screen, pso_desc, &hr);
++   if (!ret) {
++      std::_Exit(hr);
++      return NULL;
++   }
++   return ret;
++}
++
++static HRESULT
++create_gfx_pso(struct d3d12_screen *screen, CD3DX12_PIPELINE_STATE_STREAM3 &pso_desc,
++               ID3D12PipelineState **ret)
++{
+    if (screen->opts14.IndependentFrontAndBackStencilRefMaskSupported) {
+       D3D12_PIPELINE_STATE_STREAM_DESC pso_stream_desc{
+           sizeof(pso_desc),
+           &pso_desc
+       };
++      return screen->dev->CreatePipelineState(&pso_stream_desc, IID_PPV_ARGS(ret));
++   }
++   D3D12_GRAPHICS_PIPELINE_STATE_DESC v0desc = pso_desc.GraphicsDescV0();
++   return screen->dev->CreateGraphicsPipelineState(&v0desc, IID_PPV_ARGS(ret));
++}
+ 
+-      if (FAILED(hr = screen->dev->CreatePipelineState(&pso_stream_desc,
+-                                                       IID_PPV_ARGS(&ret)))) {
+-         std::_Exit(hr);
+-         return NULL;
+-      }
+-   } 
+-   else {
+-      D3D12_GRAPHICS_PIPELINE_STATE_DESC v0desc = pso_desc.GraphicsDescV0();
+-      if (FAILED(hr = screen->dev->CreateGraphicsPipelineState(&v0desc,
+-                                                               IID_PPV_ARGS(&ret)))) {
+-         std::_Exit(hr);
+-         return NULL;
++static bool
++gfx_pso_cache_key(struct d3d12_context *ctx, struct disk_cache *cache,
++                  CD3DX12_PIPELINE_STATE_STREAM3 &d, cache_key key)
++{
++   struct d3d12_root_signature_key rs_key;
++   if (!root_signature_key_for(ctx, d.pRootSignature, &rs_key))
++      return false;
++
++   struct mesa_blake3 c;
++   _mesa_blake3_init(&c);
++   _mesa_blake3_update(&c, &rs_key, sizeof(rs_key));
++   hash_bytecode(&c, d.VS);
++   hash_bytecode(&c, d.HS);
++   hash_bytecode(&c, d.DS);
++   hash_bytecode(&c, d.GS);
++   hash_bytecode(&c, d.PS);
++
++   const D3D12_STREAM_OUTPUT_DESC &so = d.StreamOutput;
++   _mesa_blake3_update(&c, &so.NumEntries, sizeof(so.NumEntries));
++   for (UINT i = 0; i < so.NumEntries; i++) {
++      const D3D12_SO_DECLARATION_ENTRY &e = so.pSODeclaration[i];
++      hash_string(&c, e.SemanticName);
++      UINT v[5] = { e.Stream, e.SemanticIndex, e.StartComponent, e.ComponentCount, e.OutputSlot };
++      _mesa_blake3_update(&c, v, sizeof(v));
++   }
++   _mesa_blake3_update(&c, &so.NumStrides, sizeof(so.NumStrides));
++   if (so.NumStrides)
++      _mesa_blake3_update(&c, so.pBufferStrides, so.NumStrides * sizeof(UINT));
++   _mesa_blake3_update(&c, &so.RasterizedStream, sizeof(so.RasterizedStream));
++
++   const D3D12_BLEND_DESC &blend = d.BlendState;
++   _mesa_blake3_update(&c, &blend, sizeof(blend));
++   const d3d12_depth_stencil_desc_type &zsa = d.DepthStencilState;
++   _mesa_blake3_update(&c, &zsa, sizeof(zsa));
++   UINT sample_mask = d.SampleMask;
++   _mesa_blake3_update(&c, &sample_mask, sizeof(sample_mask));
++   const D3D12_RASTERIZER_DESC &rast = d.RasterizerState;
++   _mesa_blake3_update(&c, &rast, sizeof(rast));
++
++   const D3D12_INPUT_LAYOUT_DESC &il = d.InputLayout;
++   _mesa_blake3_update(&c, &il.NumElements, sizeof(il.NumElements));
++   for (UINT i = 0; i < il.NumElements; i++) {
++      const D3D12_INPUT_ELEMENT_DESC &e = il.pInputElementDescs[i];
++      hash_string(&c, e.SemanticName);
++      UINT v[6] = { e.SemanticIndex, (UINT)e.Format, e.InputSlot, e.AlignedByteOffset,
++                    (UINT)e.InputSlotClass, e.InstanceDataStepRate };
++      _mesa_blake3_update(&c, v, sizeof(v));
++   }
++
++   D3D12_INDEX_BUFFER_STRIP_CUT_VALUE cut = d.IBStripCutValue;
++   D3D12_PRIMITIVE_TOPOLOGY_TYPE topo = d.PrimitiveTopologyType;
++   const D3D12_RT_FORMAT_ARRAY &rts = d.RTVFormats;
++   DXGI_FORMAT dsv = d.DSVFormat;
++   const DXGI_SAMPLE_DESC &samples = d.SampleDesc;
++   D3D12_PIPELINE_STATE_FLAGS flags = d.Flags;
++   _mesa_blake3_update(&c, &cut, sizeof(cut));
++   _mesa_blake3_update(&c, &topo, sizeof(topo));
++   _mesa_blake3_update(&c, &rts, sizeof(rts));
++   _mesa_blake3_update(&c, &dsv, sizeof(dsv));
++   _mesa_blake3_update(&c, &samples, sizeof(samples));
++   _mesa_blake3_update(&c, &flags, sizeof(flags));
++
++   blake3_hash h;
++   _mesa_blake3_final(&c, h);
++   disk_cache_compute_key(cache, h, sizeof(h), key);
++   return true;
++}
++
++static ID3D12PipelineState *
++create_gfx_pso_cached(struct d3d12_context *ctx, struct d3d12_screen *screen,
++                      CD3DX12_PIPELINE_STATE_STREAM3 &pso_desc, HRESULT *phr)
++{
++   ID3D12PipelineState *ret = NULL;
++   struct disk_cache *cache = screen->disk_cache;
++   cache_key key;
++   bool have_key = cache && gfx_pso_cache_key(ctx, cache, pso_desc, key);
++
++   if (have_key) {
++      size_t size = 0;
++      void *blob = disk_cache_get(cache, key, &size);
++      if (blob) {
++         D3D12_CACHED_PIPELINE_STATE &cached = (D3D12_CACHED_PIPELINE_STATE &)pso_desc.CachedPSO;
++         cached.pCachedBlob = blob;
++         cached.CachedBlobSizeInBytes = size;
++         HRESULT hr = create_gfx_pso(screen, pso_desc, &ret);
++         cached.pCachedBlob = NULL;
++         cached.CachedBlobSizeInBytes = 0;
++         free(blob);
++         if (SUCCEEDED(hr))
++            return ret;
++         ret = NULL;   /* stale or mismatched blob: compile, and replace it below */
+       }
+    }
+ 
++   *phr = create_gfx_pso(screen, pso_desc, &ret);
++   if (FAILED(*phr))
++      return NULL;
++
++   if (have_key) {
++      ID3DBlob *blob = NULL;
++      if (SUCCEEDED(ret->GetCachedBlob(&blob)) && blob) {
++         if (blob->GetBufferSize())
++            disk_cache_put(cache, key, blob->GetBufferPointer(), blob->GetBufferSize(), NULL);
++         blob->Release();
++      }
++   }
+    return ret;
+ }
+ 
+diff --git a/src/gallium/drivers/d3d12/d3d12_root_signature.cpp b/src/gallium/drivers/d3d12/d3d12_root_signature.cpp
+index bfa4459..68bafc5 100644
+--- a/src/gallium/drivers/d3d12/d3d12_root_signature.cpp
++++ b/src/gallium/drivers/d3d12/d3d12_root_signature.cpp
+@@ -294,6 +294,12 @@ d3d12_get_root_signature(struct d3d12_context *ctx, bool compute)
+    return ((struct d3d12_root_signature *)entry->data)->sig;
+ }
+ 
++ID3D12RootSignature *
++d3d12_root_signature_from_entry(struct hash_entry *entry)
++{
++   return ((struct d3d12_root_signature *)entry->data)->sig;
++}
++
+ static uint32_t
+ hash_root_signature_key(const void *key)
+ {
+diff --git a/src/gallium/drivers/d3d12/d3d12_root_signature.h b/src/gallium/drivers/d3d12/d3d12_root_signature.h
+index 82027af..2614572 100644
+--- a/src/gallium/drivers/d3d12/d3d12_root_signature.h
++++ b/src/gallium/drivers/d3d12/d3d12_root_signature.h
+@@ -49,4 +49,8 @@ d3d12_root_signature_cache_destroy(struct d3d12_context *ctx);
+ ID3D12RootSignature *
+ d3d12_get_root_signature(struct d3d12_context *ctx, bool compute);
+ 
++struct hash_entry;
++ID3D12RootSignature *
++d3d12_root_signature_from_entry(struct hash_entry *entry);
++
+ #endif
+diff --git a/src/gallium/drivers/d3d12/d3d12_screen.cpp b/src/gallium/drivers/d3d12/d3d12_screen.cpp
+index a2fc299..c057954 100644
+--- a/src/gallium/drivers/d3d12/d3d12_screen.cpp
++++ b/src/gallium/drivers/d3d12/d3d12_screen.cpp
+@@ -47,6 +47,9 @@
+ #include "util/u_screen.h"
+ #include "util/u_dl.h"
+ #include "util/mesa-blake3.h"
++#include "util/build_id.h"
++#include "util/disk_cache.h"
++#include "util/hex.h"
+ 
+ #include "frontend/sw_winsys.h"
+ 
+@@ -673,6 +676,7 @@ d3d12_deinit_screen(struct d3d12_screen *screen)
+ void
+ d3d12_destroy_screen(struct d3d12_screen *screen)
+ {
++   disk_cache_destroy(screen->disk_cache);
+    slab_destroy_parent(&screen->transfer_pool);
+    mtx_destroy(&screen->submit_mutex);
+    mtx_destroy(&screen->pending_free_lock);
+@@ -691,6 +695,38 @@ d3d12_destroy_screen(struct d3d12_screen *screen)
+    FREE(screen);
+ }
+ 
++/* Without a shader cache, every process links all of its GLSL programs and has the GPU driver compile
++ * all of its pipelines again: on WSL a GTK window's first frame took ~1.5 s. The cache identity covers
++ * this Mesa build, the adapter and its driver version, and the debug flags that change shader output. */
++static void
++d3d12_disk_cache_init(struct d3d12_screen *screen)
++{
++#if defined(ENABLE_SHADER_CACHE) && HAVE_BUILD_ID
++   const struct build_id_note *note = build_id_find_nhdr_for_addr((void *)d3d12_disk_cache_init);
++   if (!note)
++      return;
++   struct mesa_blake3 ctx;
++   _mesa_blake3_init(&ctx);
++   _mesa_blake3_update(&ctx, build_id_data(note), build_id_length(note));
++   _mesa_blake3_update(&ctx, &screen->vendor_id, sizeof(screen->vendor_id));
++   _mesa_blake3_update(&ctx, &screen->device_id, sizeof(screen->device_id));
++   _mesa_blake3_update(&ctx, &screen->revision, sizeof(screen->revision));
++   _mesa_blake3_update(&ctx, &screen->driver_version, sizeof(screen->driver_version));
++   _mesa_blake3_update(&ctx, &d3d12_debug, sizeof(d3d12_debug));
++   blake3_hash id;
++   _mesa_blake3_final(&ctx, id);
++   char id_hex[BLAKE3_HEX_LEN];
++   mesa_bytes_to_hex(id_hex, id, BLAKE3_KEY_LEN);
++   screen->disk_cache = disk_cache_create("d3d12", id_hex, 0);
++#endif
++}
++
++static struct disk_cache *
++d3d12_get_disk_shader_cache(struct pipe_screen *pscreen)
++{
++   return d3d12_screen(pscreen)->disk_cache;
++}
++
+ static void
+ d3d12_flush_frontbuffer(struct pipe_screen * pscreen,
+                         struct pipe_context *pctx,
+@@ -1874,5 +1910,8 @@ d3d12_init_screen(struct d3d12_screen *screen, IUnknown *adapter)
+    d3d12_init_compute_caps(screen);
+    d3d12_init_screen_caps(screen);
+ 
++   d3d12_disk_cache_init(screen);
++   screen->base.get_disk_shader_cache = d3d12_get_disk_shader_cache;
++
+    return true;
+ }
+diff --git a/src/gallium/drivers/d3d12/d3d12_screen.h b/src/gallium/drivers/d3d12/d3d12_screen.h
+index d5d8e90..d929fdf 100644
+--- a/src/gallium/drivers/d3d12/d3d12_screen.h
++++ b/src/gallium/drivers/d3d12/d3d12_screen.h
+@@ -70,6 +70,8 @@ struct d3d12_memory_info {
+ struct d3d12_screen {
+    struct pipe_screen base;
+    struct sw_winsys *winsys;
++   /* Shader cache: linked GLSL programs (NIR, through st/mesa) and driver-compiled pipeline states */
++   struct disk_cache *disk_cache;
+    LUID adapter_luid;
+    char driver_uuid[PIPE_UUID_SIZE];
+    char device_uuid[PIPE_UUID_SIZE];

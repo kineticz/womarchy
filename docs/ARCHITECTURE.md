@@ -100,6 +100,7 @@ Costs worth knowing (measured, see [WORKLOG.md](WORKLOG.md)):
 - **Keeping our builds in step with Omarchy.** Omarchy installs from a dated snapshot of Arch (`stable-mirror.omarchy.org`). When that snapshot moves Hyprland's libraries or LLVM, our builds must be rebuilt against it.
   - Our Hyprland and aquamarine packages depend on exact library versions (e.g. `libhyprutils.so=13-64`), so pacman refuses an update that would break them.
   - A pacman hook does the same for Mesa's LLVM.
+  - Another pacman hook keeps a copy of LLVM without `GNU_UNIQUE` symbols ahead of `/usr/lib`, so the Windows GPU driver's own LLVM doesn't bind to Arch's ([research 07](research/07-gl-startup-and-llvm-clash.md)).
   - Either way the update stops before changing anything. A daily CI job (`snapshot-watch.yml`) notices and opens an issue, and the on-demand build workflow (`packages.yml`) rebuilds against the new snapshot.
 - **Rollback.** A pacman hook records the installed package list before every update (one record per update session, the newest 5 kept). `womarchy-rollback`, also run by `omarchy rollback`, reinstalls those versions:
   - from pacman's cache;

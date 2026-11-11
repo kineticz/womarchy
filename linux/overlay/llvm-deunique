@@ -1,0 +1,95 @@
+#!/usr/bin/perl
+# womarchy LLVM copy without GNU_UNIQUE symbols (pacman hook 10-womarchy-llvm-unique, and
+# womarchy-compat's install script).
+#
+# Arch builds libLLVM with GCC, which marks objects like
+# FoldingSet<AttributeListImpl>::getFoldingSetInfo()::Info as STB_GNU_UNIQUE. glibc keeps one
+# process-wide table of those, keyed by name only, ignoring symbol versions. On WSL, Mesa loads
+# libLLVM.so.<ver> first; when the Windows GPU driver then compiles a shader, its private LLVM
+# (e.g. Intel IGC's libLLVM-14.so) has ~40 of these references bound to the system LLVM, calls
+# functions of the wrong LLVM version, and corrupts or crashes the process (quickshell, Hyprland,
+# Edge...). As ordinary versioned GLOBAL symbols they stay with their own library.
+#
+# For every /usr/lib/libLLVM.so.<ver>, write /usr/lib/womarchy/llvm/libLLVM.so.<ver> with each
+# GNU_UNIQUE .dynsym entry rewritten as GLOBAL; /usr/lib/ld.so.conf.d/womarchy-llvm.conf puts that
+# directory ahead of /usr/lib. Copies whose source is gone are removed. Never fails the
+# transaction: without a copy, programs simply load the system LLVM as before.
+#
+# Test overrides: WOMARCHY_LLVM_SRC, WOMARCHY_LLVM_OUT, WOMARCHY_LDCONFIG.
+use strict;
+use warnings;
+
+my $src = $ENV{WOMARCHY_LLVM_SRC} // '/usr/lib';
+my $out = $ENV{WOMARCHY_LLVM_OUT} // '/usr/lib/womarchy/llvm';
+my $ldconfig = $ENV{WOMARCHY_LDCONFIG} // 'ldconfig';
+my $name_re = qr/^libLLVM\.so\.\d+(?:\.\d+)*$/;
+
+# NeedsTargets-style input is not used; drain stdin when it is a pipe so pacman never blocks.
+if (!-t STDIN) { local $/; my $ignored = <STDIN>; }
+
+sub deunique {
+    my ($data) = @_;    # scalar ref
+    return undef unless substr($$data, 0, 6) eq "\x7fELF\x02\x01";    # ELF64 little-endian
+    my $shoff = unpack('Q<', substr($$data, 0x28, 8));
+    my ($shentsize, $shnum) = unpack('v v', substr($$data, 0x3A, 4));
+    my $changed = 0;
+    for my $i (0 .. $shnum - 1) {
+        my $sh = $shoff + $i * $shentsize;
+        next unless unpack('V', substr($$data, $sh + 4, 4)) == 11;    # SHT_DYNSYM
+        my ($off, $size) = unpack('Q< Q<', substr($$data, $sh + 0x18, 16));
+        my $entsize = unpack('Q<', substr($$data, $sh + 0x38, 8)) || 24;
+        for (my $s = $off; $s + $entsize <= $off + $size; $s += $entsize) {
+            my $info = ord(substr($$data, $s + 4, 1));
+            next unless ($info >> 4) == 10;    # STB_GNU_UNIQUE
+            substr($$data, $s + 4, 1) = chr((1 << 4) | ($info & 0xF));    # STB_GLOBAL
+            $changed++;
+        }
+    }
+    return $changed;
+}
+
+opendir(my $dh, $src) or exit 0;
+my @libs = grep { $_ =~ $name_re && -f "$src/$_" && !-l "$src/$_" } readdir($dh);
+closedir($dh);
+
+my $touched = 0;
+for my $lib (sort @libs) {
+    my $in = "$src/$lib";
+    my $dst = "$out/$lib";
+    my @st = stat($in);
+    my @dt = stat($dst);
+    next if @dt && $dt[9] == $st[9] && $dt[7] == $st[7];    # up to date (same mtime and size)
+
+    open(my $fh, '<:raw', $in) or do { warn "womarchy: cannot read $in: $!\n"; next };
+    my $data = do { local $/; <$fh> };
+    close($fh);
+    my $n = deunique(\$data);
+    if (!defined $n) { warn "womarchy: $in is not an ELF64 library, skipped\n"; next; }
+
+    system('mkdir', '-p', $out) == 0 or do { warn "womarchy: cannot create $out\n"; last };
+    # A new file renamed into place: running programs keep the copy they have mapped.
+    my $tmp = "$dst.tmp.$$";
+    if (open(my $oh, '>:raw', $tmp)) {
+        print $oh $data;
+        if (close($oh) && chmod(0755, $tmp) && utime($st[8], $st[9], $tmp) && rename($tmp, $dst)) {
+            print "womarchy: $lib without GNU_UNIQUE symbols ($n rewritten) in $out\n";
+            $touched = 1;
+            next;
+        }
+    }
+    warn "womarchy: cannot write $dst: $!\n";
+    unlink($tmp);
+}
+
+# Remove copies whose source library is gone (LLVM upgraded to a new soname, or removed).
+if (opendir(my $oh, $out)) {
+    for my $lib (grep { $_ =~ $name_re } readdir($oh)) {
+        next if -f "$src/$lib";
+        unlink("$out/$lib") and print "womarchy: removed stale $out/$lib\n";
+        $touched = 1;
+    }
+    closedir($oh);
+}
+
+system($ldconfig) if $touched;
+exit 0;

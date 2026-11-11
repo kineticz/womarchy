@@ -71,6 +71,7 @@ jobs:
           python3 tools/test-mesa-pkgbuild.py -v
           python3 tools/test-hyprland-pkgbuild.py -v
           python3 tools/test-trust-fork-key.py -v
+          python3 tools/test-llvm-deunique.py -v
 
       - name: PowerShell parses
         shell: pwsh
