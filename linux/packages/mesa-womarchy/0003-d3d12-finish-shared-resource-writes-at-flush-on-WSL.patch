@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Kaiyin Zhong <kaiyin@zhong.science>
 Date: Wed, 11 Nov 2026 11:29:42 +0100
-Subject: [PATCH 3/4] d3d12: finish shared-resource writes at flush on WSL
+Subject: [PATCH 3/6] d3d12: finish shared-resource writes at flush on WSL
 
 Under WSL another process sees a shared (dmabuf/handle) resource through
 dxgkrnl, which has no implicit sync: the dmabuf carries no fence and shared
@@ -9,6 +9,8 @@ fences don't cross processes. A compositor could sample a buffer before the
 client's GPU work on it ran (a lab test: 167 of 200 frames wrong with only
 glFlush). A flush is where an application hands its rendering over, so when
 the flushed batches wrote a shared resource, wait for them before returning.
+
+Generated-by: LLM
 ---
  src/gallium/drivers/d3d12/d3d12_batch.cpp      |  3 +++
  src/gallium/drivers/d3d12/d3d12_batch.h        |  2 ++

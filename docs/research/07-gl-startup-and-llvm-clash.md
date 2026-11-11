@@ -66,9 +66,23 @@ Fix (womarchy-compat 0.4.3), with no change to Mesa or LLVM packages:
 Verified: with the copy, LLVM 14 binds all its own `getFoldingSetInfo()::Info` tables (0 bindings to LLVM
 23), and llvmpipe still compiles and renders with it.
 
+## Vulkan apps crashed in the device-select layer
+
+Since linux-dmabuf runs on vgem (research 06), every Vulkan instance with `VK_KHR_wayland_surface` or
+`VK_KHR_xcb_surface` crashed in `vkEnumeratePhysicalDevices`, inside Mesa's implicit
+`VkLayer_MESA_device_select` (GTK with `GSK_RENDERER=vulkan`, GTK texture downloads, any Wayland Vulkan app).
+The layer asks the display which device it uses (linux-dmabuf default feedback `main_device`, or DRI3 on
+X11), gets vgem (a platform device), and reads `businfo.pci` / `deviceinfo.pci` without checking
+`bustype`. For a platform device those unions hold other pointers. Mesa main has the same code.
+
+Fix, [Mesa 0006](../../patches/mesa/0006-vulkan-device-select-only-match-PCI-devices-against-.patch): skip the
+display-device match unless the device is on the PCI bus. Verified with a minimal instance (Wayland and
+X11 surface extensions) and a GTK window on the Vulkan renderer: both crash with the stock layer and work
+with the fix. Before the package update, `NODEVICE_SELECT=1` is a workaround.
+
 ## Other findings, not fixed yet
 
 - GTK's GL `render_texture` → `save_to_png` (texture download) returns noise under d3d12, also with stock
   Mesa. On-screen rendering is correct.
-- `save_to_png` with Vulkan enabled makes GTK open Vulkan, and Mesa's `VkLayer_MESA_device_select` crashes
-  in `vkEnumeratePhysicalDevices` (with dzn). `GDK_DISABLE=vulkan` avoids it.
+- Edge with `--disable-gpu-sandbox` stalls 4–9 s at start-up; with the default sandbox it starts cleanly
+  (4/4 runs at ~65 FPS from the first second).

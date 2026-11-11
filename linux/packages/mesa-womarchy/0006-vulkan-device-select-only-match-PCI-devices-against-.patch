@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kaiyin Zhong <kaiyin@zhong.science>
+Date: Wed, 11 Nov 2026 14:13:33 +0100
+Subject: [PATCH 6/6] vulkan/device-select: only match PCI devices against the
+ display's device
+
+device_select_find_wayland_pci_default() and the X11 variant read
+businfo.pci/deviceinfo.pci of the device the compositor (linux-dmabuf
+main device, wl_drm) or the X server (DRI3) names, without checking the
+bus type. For a platform device those unions hold other pointers, so
+every Vulkan instance with a Wayland or X11 surface extension crashed in
+vkEnumeratePhysicalDevices. That is what happens on WSL, where the
+compositor's render node is vgem.
+
+Skip the display-device match when that device is not on the PCI bus.
+
+Generated-by: LLM
+---
+ src/vulkan/device-select-layer/device_select_wayland.c | 4 +++-
+ src/vulkan/device-select-layer/device_select_x11.c     | 5 +++++
+ 2 files changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/src/vulkan/device-select-layer/device_select_wayland.c b/src/vulkan/device-select-layer/device_select_wayland.c
+index 29ead33..c91901e 100644
+--- a/src/vulkan/device-select-layer/device_select_wayland.c
++++ b/src/vulkan/device-select-layer/device_select_wayland.c
+@@ -235,7 +235,9 @@ device_select_find_wayland_pci_default(struct device_pci_info *devices, uint32_t
+       target = info.drm_dev_info;
+    }
+ #endif
+-   if (target == NULL) {
++   /* Only PCI devices can be matched. A platform device such as vgem (the render node of a compositor
++    * on WSL) has no pci info: its businfo/deviceinfo unions hold other pointers. */
++   if (target == NULL || target->bustype != DRM_BUS_PCI) {
+       goto done;
+    }
+ 
+diff --git a/src/vulkan/device-select-layer/device_select_x11.c b/src/vulkan/device-select-layer/device_select_x11.c
+index 44313aa..77eb3bd 100644
+--- a/src/vulkan/device-select-layer/device_select_x11.c
++++ b/src/vulkan/device-select-layer/device_select_x11.c
+@@ -98,6 +98,11 @@ device_select_find_xcb_pci_default(struct device_pci_info *devices, uint32_t dev
+    if (ret < 0)
+       goto out;
+ 
++   /* Only PCI devices can be matched. A platform device such as vgem (WSL) has no pci info: its
++    * businfo/deviceinfo unions hold other pointers. */
++   if (xdev->bustype != DRM_BUS_PCI)
++      goto out;
++
+    for (unsigned i = 0; i < device_count; i++) {
+       if (devices[i].has_bus_info) {
+          if (xdev->businfo.pci->domain == devices[i].bus_info.domain &&

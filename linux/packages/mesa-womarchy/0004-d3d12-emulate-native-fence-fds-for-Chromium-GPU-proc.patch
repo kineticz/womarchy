@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Kaiyin Zhong <kaiyin@zhong.science>
 Date: Wed, 11 Nov 2026 12:11:21 +0100
-Subject: [PATCH 4/4] d3d12: emulate native fence fds for Chromium GPU
+Subject: [PATCH 4/6] d3d12: emulate native fence fds for Chromium GPU
  processes on WSL
 
 WSL has no sync_file for D3D12 work, so d3d12 can't offer
@@ -16,6 +16,8 @@ D3D12_WSL_NATIVE_FENCE_FD=0/1 overrides), advertise native fence fds:
 exporting one waits for the fence (the flush already happened when the sync
 was created) and returns an already-readable eventfd, i.e. a signaled fence to
 poll(); importing one waits for the fd on the CPU.
+
+Generated-by: LLM
 ---
  .../drivers/d3d12/d3d12_context_common.cpp    |  4 +
  src/gallium/drivers/d3d12/d3d12_fence.cpp     | 78 +++++++++++++++++++
