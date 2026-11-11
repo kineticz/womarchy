@@ -115,6 +115,26 @@ The glxgears frame rate itself is too noisy on a shared desktop to show the gain
 GLX software winsys: Xwayland GLX can't use DRI3 here ("failed to load driver: kms_swrast"), so every frame is
 read back from the GPU and sent to the X server.
 
+## Crosses on rounded buttons in Edge: comparisons with infinity
+
+Every button with a rounded border and a fill showed a cross from corner to corner (deepseek.com), and the
+"e" of the Google logo was cut. Edge's own capture (`Page.captureScreenshot`) had it too, so it was rendering,
+not presentation. Not with llvmpipe, `--disable-gpu`, `--disable-gpu-rasterization` or ANGLE on Vulkan;
+independent of MSAA. Reproducer: a `div` with `border-radius`, a translucent background and a 1 px border
+(`~/src/zc-spike/edge-lab/rrect.html`).
+
+Logging the d3d12 stencil state showed Skia's stencil-then-cover path rendering (even-odd `INVERT`, then
+cover with `NOTEQUAL`); the stencil pass is an instanced tessellation draw whose vertex shader decides the
+curve type with `abs(p23.z) == inf`. A small test (`~/src/zc-spike/basevtx/inf.c`) showed that Intel's D3D12
+driver gets any equality test of a *computed* value against the constant infinity wrong (`abs(x) == inf`,
+`isinf(x)`, `x * 2.0 == inf` always false), while a raw input, infinity from a uniform, and ordered
+comparisons (`abs(x) >= inf`) work. The DXIL itself is plain `FAbs` + `fcmp oeq`; it is not the fast-math flags
+or the math-refactoring flag (both tried).
+
+[Mesa 0009](../../patches/mesa/0009-microsoft-compiler-compare-against-infinity-with-ord.patch) emits
+`x == ±inf` and `x != ±inf` as ordered/unordered comparisons (`x >= inf`, `!(x >= inf)`), which are equal for
+every x. Buttons and the Google logo render correctly; GTK output stays pixel-identical.
+
 ## Other findings, not fixed yet
 
 - Xwayland GL apps (GLX) render through the software winsys: d3d12 renders, each frame is read back and
