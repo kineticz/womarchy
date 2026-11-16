@@ -10,15 +10,18 @@
 //!   and AUDIO_CAPTURE_STOP when none does; in between a recorder thread captures Windows' default
 //!   input device with WASAPI and sends AUDIO_CAPTURE_DATA. So the microphone is open (and Windows
 //!   shows it in use) exactly while something in Linux records.
+//! - **Cameras.** Listed at connect (CAMERA_LIST), streamed between CAMERA_START and CAMERA_STOP; see
+//!   camera.rs.
 //!
 //! Clocks: Linux produces playback at its own pace, the sound card consumes at its own. The player keeps
 //! ~30 ms queued and nudges WASAPI's sample rate (IAudioClockAdjustment) by up to ±0.5 % to hold that
 //! level; if that is not available it drops excess audio once it is clearly too much. The capture side
 //! is corrected in mediad.
 
+use crate::camera::{self, Camera};
 use crate::net::Conn;
 use crate::wdp;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
@@ -75,7 +78,7 @@ pub fn start(vm: GUID, port: u32, token: [u8; wdp::TOKEN_BYTES]) {
                 return;
             };
             if !announced {
-                eprintln!("[omarchy] media: connected (speakers and microphone)");
+                eprintln!("[omarchy] media: connected (speakers, microphone, cameras)");
                 announced = true;
             }
             serve(conn);
@@ -91,7 +94,7 @@ fn connect(vm: GUID, port: u32, token: &[u8; wdp::TOKEN_BYTES]) -> Option<Conn> 
         if let Ok(conn) = Conn::connect(vm, port) {
             conn.set_recv_timeout(Some(Duration::from_secs(5)));
             let mut payload = Vec::new();
-            let ok = conn.send_msg(&wdp::media_hello(token, wdp::MEDIA_CAP_PLAYBACK | wdp::MEDIA_CAP_CAPTURE)).is_ok()
+            let ok = conn.send_msg(&wdp::media_hello(token, wdp::MEDIA_CAP_PLAYBACK | wdp::MEDIA_CAP_CAPTURE | wdp::MEDIA_CAP_CAMERA)).is_ok()
                 && matches!(conn.recv_msg(&mut payload), Ok(wdp::MEDIA_WELCOME))
                 && wdp::proves(token, payload.get(4..4 + wdp::PROOF_BYTES).unwrap_or(&[]));
             conn.set_recv_timeout(None);
@@ -113,6 +116,22 @@ fn serve(conn: Conn) {
         wake: Condvar::new(),
     });
     let mut capture: Option<Arc<AtomicBool>> = None; // the running recorder's stop flag
+    // cameras: listed off this thread (opening each device takes a moment), then announced
+    let cameras: Arc<Mutex<Vec<Camera>>> = Arc::default();
+    {
+        let (cameras, conn) = (cameras.clone(), conn.clone());
+        thread::spawn(move || {
+            let list = camera::list();
+            for c in &list {
+                let m = c.modes.iter().max_by_key(|m| m.width * m.height).unwrap();
+                eprintln!("[omarchy] camera: {} ({} modes, up to {}x{})", c.name, c.modes.len(), m.width, m.height);
+            }
+            let entries: Vec<(u32, &str, &[wdp::CameraMode])> = list.iter().map(|c| (c.id, c.name.as_str(), c.modes.as_slice())).collect();
+            let _ = conn.send_msg(&wdp::camera_list(&entries));
+            *cameras.lock().unwrap() = list;
+        });
+    }
+    let mut streaming: HashMap<u32, Arc<AtomicBool>> = HashMap::new(); // camera id -> stop flag
     let mut payload = Vec::new();
     while let Ok(ty) = conn.recv_msg(&mut payload) {
         match ty {
@@ -166,10 +185,30 @@ fn serve(conn: Conn) {
                     stop.store(true, Ordering::SeqCst);
                 }
             }
+            wdp::CAMERA_START => {
+                let Some((id, mode)) = wdp::parse_camera_start(&payload) else { continue };
+                let Some(cam) = cameras.lock().unwrap().iter().find(|c| c.id == id && c.modes.contains(&mode)).cloned() else { continue };
+                if let Some(stop) = streaming.remove(&id) {
+                    stop.store(true, Ordering::SeqCst);
+                }
+                let stop = Arc::new(AtomicBool::new(false));
+                streaming.insert(id, stop.clone());
+                let conn = conn.clone();
+                thread::spawn(move || camera::capture(conn, cam, mode, stop));
+            }
+            wdp::CAMERA_STOP if payload.len() >= 4 => {
+                let id = u32::from_le_bytes(payload[..4].try_into().unwrap());
+                if let Some(stop) = streaming.remove(&id) {
+                    stop.store(true, Ordering::SeqCst);
+                }
+            }
             _ => {} // unknown: skip
         }
     }
     if let Some(stop) = capture.take() {
+        stop.store(true, Ordering::SeqCst);
+    }
+    for stop in streaming.values() {
         stop.store(true, Ordering::SeqCst);
     }
     let mut st = play.state.lock().unwrap();

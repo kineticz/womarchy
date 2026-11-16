@@ -17,6 +17,7 @@
 //! connect to the compositor over hvsocket, check that it knows the token, and from then on show its
 //! outputs and forward input until it says goodbye. See protocol/wdp.h and docs/ARCHITECTURE.md.
 
+mod camera;
 mod clip;
 mod clipimage;
 mod install;

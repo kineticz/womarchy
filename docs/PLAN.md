@@ -70,7 +70,7 @@ Companion to [FEASIBILITY.md](FEASIBILITY.md) (read that first for the evidence)
 │       │    render to FBO → damage-only readback into frame ring   │
 │       └─ Omarchy 4 (quickshell shell, owe, foot, chromium, …)     │
 │  clients: GL/Vulkan via Mesa d3d12/dzn → wl_shm (GPU + readback)  │
-│  audio: PipeWire ↔ womarchy-mediad ↔ viewer (WASAPI)              │
+│  audio, camera: PipeWire ↔ womarchy-mediad ↔ viewer (WASAPI, MF)  │
 │  womarchy-clipd: ext-data-control ↔ viewer                        │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -239,7 +239,7 @@ Each spike that touches the shared WSL VM is flagged ⚠ and needs the user's ap
 
 ### Phase 4 — Integration polish and performance (3–4 weeks)
 
-- **Audio:** PCM over WDP's media channel to WASAPI (`womarchy-mediad` ↔ `omarchy.exe`; done). The PipeWire pulse-tunnel to WSLg's PulseServer remains the fallback for older viewers. Next on the same channel: the Windows camera (Media Foundation → PipeWire video source).
+- **Audio:** PCM over WDP's media channel to WASAPI (`womarchy-mediad` ↔ `omarchy.exe`; done). The PipeWire pulse-tunnel to WSLg's PulseServer remains the fallback for older viewers. The Windows cameras use the same channel (Media Foundation → NV12 → PipeWire video sources for the camera portal; done). Open: `/dev/video*` for V4L2-only apps (would need v4l2loopback, a kernel module).
 - **HiDPI:** fractional scales from Windows DPI, per-monitor; Xwayland zero-scaling; cursor size sync.
 - **Video:** hardware decode via VA-API on the X11 display type or NVDEC (CUDA) in mpv/Chromium; verify owe (the mpv wallpaper engine) cost.
 - **Browser/Electron GPU acceleration:** settle flags per the Phase 0 matrix; web apps (`chromium --app`) are Omarchy's backbone.

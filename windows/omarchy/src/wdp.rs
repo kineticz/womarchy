@@ -57,6 +57,17 @@ pub const AUDIO_CAPTURE_STOP: u32 = 322;
 pub const AUDIO_CAPTURE_FAILED: u32 = 323;
 pub const MEDIA_CAP_PLAYBACK: u32 = 1 << 0;
 pub const MEDIA_CAP_CAPTURE: u32 = 1 << 1;
+pub const MEDIA_CAP_CAMERA: u32 = 1 << 2;
+pub const CAMERA_LIST: u32 = 330;
+pub const CAMERA_START: u32 = 331;
+pub const CAMERA_FRAME: u32 = 332;
+pub const CAMERA_STOP: u32 = 333;
+pub const CAMERA_FAILED: u32 = 334;
+pub const CAMERA_NV12: u32 = 1;
+pub const MAX_CAMERAS: usize = 8;
+pub const MAX_CAMERA_MODES: usize = 32;
+pub const MAX_CAMERA_WIDTH: u32 = 1920;
+pub const MAX_CAMERA_HEIGHT: u32 = 1080;
 pub const AUDIO_F32LE: u32 = 1;
 pub const MAX_AUDIO_DATA: usize = 1 << 20;
 pub const MAX_AUDIO_RATE: u32 = 384_000;
@@ -243,6 +254,58 @@ pub fn audio_capture_data(samples: &[f32]) -> Vec<u8> {
 pub fn audio_capture_failed(hresult: i32) -> Vec<u8> {
     let mut m = Msg::new(AUDIO_CAPTURE_FAILED);
     m.i32(hresult);
+    m.finish()
+}
+
+/// A camera mode: frame size and rate (`wdp_camera_mode`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CameraMode {
+    pub width: u32,
+    pub height: u32,
+    pub fps_num: u32,
+    pub fps_den: u32,
+}
+
+/// CAMERA_LIST: the cameras (id, name, modes) the viewer can deliver.
+pub fn camera_list(cameras: &[(u32, &str, &[CameraMode])]) -> Vec<u8> {
+    let mut m = Msg::new(CAMERA_LIST);
+    m.u32(cameras.len().min(MAX_CAMERAS) as u32);
+    for (id, name, modes) in cameras.iter().take(MAX_CAMERAS) {
+        m.u32(*id).fixed_str(name, 64).u32(modes.len().min(MAX_CAMERA_MODES) as u32);
+        for mode in modes.iter().take(MAX_CAMERA_MODES) {
+            m.u32(mode.width).u32(mode.height).u32(mode.fps_num).u32(mode.fps_den);
+        }
+    }
+    m.finish()
+}
+
+/// CAMERA_START: (camera id, mode) if it is a mode we could have offered.
+pub fn parse_camera_start(payload: &[u8]) -> Option<(u32, CameraMode)> {
+    let mut r = Reader::new(payload);
+    let id = r.u32()?;
+    let mode = CameraMode { width: r.u32()?, height: r.u32()?, fps_num: r.u32()?, fps_den: r.u32()? };
+    let format = r.u32()?;
+    let ok = format == CAMERA_NV12
+        && (2..=MAX_CAMERA_WIDTH).contains(&mode.width)
+        && (2..=MAX_CAMERA_HEIGHT).contains(&mode.height)
+        && mode.width % 2 == 0
+        && mode.height % 2 == 0
+        && mode.fps_num > 0
+        && mode.fps_den > 0;
+    ok.then_some((id, mode))
+}
+
+/// CAMERA_FRAME header; append the NV12 pixels (width * height * 3 / 2 bytes, rows packed).
+pub fn camera_frame(id: u32, width: u32, height: u32, timestamp_ns: u64, nv12: &[u8]) -> Vec<u8> {
+    let mut m = Msg::new(CAMERA_FRAME);
+    m.buf.reserve(nv12.len());
+    m.u32(id).u32(width).u32(height).u32(CAMERA_NV12).u64(timestamp_ns).bytes(nv12);
+    m.finish()
+}
+
+pub fn camera_failed(id: u32, hresult: i32) -> Vec<u8> {
+    let mut m = Msg::new(CAMERA_FAILED);
+    m.u32(id).i32(hresult);
     m.finish()
 }
 
@@ -464,6 +527,25 @@ mod tests {
         assert_eq!(parse_audio_format(&fmt(48000, 9, AUDIO_F32LE)), None);
         assert_eq!(parse_audio_format(&fmt(0, 2, AUDIO_F32LE)), None);
         assert_eq!(parse_audio_format(&fmt(48000, 2, AUDIO_F32LE)[..8]), None, "short");
+    }
+
+    #[test]
+    fn camera_messages() {
+        let hd = CameraMode { width: 1280, height: 720, fps_num: 30, fps_den: 1 };
+        let l = camera_list(&[(0, "Integrated Webcam", &[hd, CameraMode { width: 640, height: 480, fps_num: 30, fps_den: 1 }])]);
+        assert_eq!(u32::from_le_bytes(l[4..8].try_into().unwrap()) as usize, 4 + 4 + 64 + 4 + 2 * 16);
+        assert_eq!(&l[16..33], b"Integrated Webcam");
+
+        let start = |w: u32, h: u32, n: u32, f: u32| [0u32, w, h, n, 1, f].iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>();
+        assert_eq!(parse_camera_start(&start(1280, 720, 30, CAMERA_NV12)), Some((0, hd)));
+        assert_eq!(parse_camera_start(&start(1281, 720, 30, CAMERA_NV12)), None, "odd width");
+        assert_eq!(parse_camera_start(&start(3840, 2160, 30, CAMERA_NV12)), None, "above 1080p");
+        assert_eq!(parse_camera_start(&start(1280, 720, 0, CAMERA_NV12)), None, "no frame rate");
+        assert_eq!(parse_camera_start(&start(1280, 720, 30, 2)), None, "unknown format");
+
+        let f = camera_frame(3, 2, 2, 7, &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(u32::from_le_bytes(f[4..8].try_into().unwrap()), 24 + 6);
+        assert_eq!(&f[f.len() - 6..], &[1, 2, 3, 4, 5, 6]);
     }
 
     #[test]

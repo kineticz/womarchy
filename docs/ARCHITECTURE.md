@@ -17,8 +17,8 @@ reasoning behind the design see [FEASIBILITY.md](FEASIBILITY.md); for the wire f
   ├─ keyboard hook thread (Super, Alt+Tab, ...)      │   └──────┤
   ├─ clipboard thread  ◀──── text ────▶ womarchy-clipd  hvsocket└─ aquamarine "wsl" backend (new)
   │                                    (Wayland data-control)  (AF_HYPERV ↔ AF_VSOCK)
-  └─ media threads     ◀──── PCM ─────▶ womarchy-mediad (PipeWire sink "Windows audio",
-     (WASAPI)                                             source "Windows microphone")
+  └─ media threads     ◀── PCM, NV12 ──▶ womarchy-mediad (PipeWire sink "Windows audio",
+     (WASAPI, Media Foundation)          source "Windows microphone", camera sources)
 ```
 
 ## Components
@@ -75,12 +75,13 @@ Costs worth knowing (measured, see [WORKLOG.md](WORKLOG.md)):
 - **Mouse:** absolute positions per output, plus buttons and wheel. Hyprland maps an output's absolute motion onto that monitor (patch 0005), so the pointer moves between monitors exactly as Windows moves it between windows.
 - **Cursor:** the cursor is drawn by Windows: the compositor sends cursor images, and the viewer turns them into native cursors. It never lags behind the frames. Explicit compositor warps also reach the host through `POINTER_WARP`; ordinary motion is never echoed back. Warps use output-local physical coordinates and only move the cursor while the viewer is live and foreground and the target window is visible.
 
-## Audio
+## Audio and cameras
 
 `womarchy-mediad` runs in the session while the viewer is connected on the media channel. It gives PipeWire two nodes, "Windows audio" (`womarchy-sink`) and "Windows microphone" (`womarchy-source`), and makes them the defaults when the configured default was WSLg's tunnel or nothing.
 - **Playback.** What apps play is sent as float PCM (48 kHz stereo, 10 ms packets). The viewer keeps ~30 ms queued and plays it with WASAPI. To follow the sound card's clock it nudges WASAPI's sample rate by at most ±0.5 % (`IAudioClockAdjustment`), so nothing is dropped or repeated. When nothing plays, WirePlumber suspends the sink, mediad sends `AUDIO_PLAY_STOP`, and the viewer closes the device.
 - **Microphone.** The source is suspended unless an app records from it. mediad opens and closes the Windows microphone with it (`AUDIO_CAPTURE_START`/`STOP`), so Windows' "microphone in use" indicator is accurate. mediad keeps ~40 ms buffered and drops excess when the microphone's clock runs fast.
 - Volume and mute are PipeWire's (the nodes are ordinary streams), so Omarchy's volume keys and panels work unchanged.
+- **Cameras.** At connect the viewer lists Windows' video cameras (Media Foundation; Windows Hello's IR camera is not one) and the modes it can deliver: native sizes and rates up to 1080p, always as NV12. mediad turns each into a PipeWire `Video/Source` with `media.role=Camera`, the property the camera portal (`org.freedesktop.portal.Camera`) looks for, so browsers find it after asking permission. When an app streams, mediad sends the negotiated mode (`CAMERA_START`); a capture thread reads frames with a source reader (decoding MJPG, converting YUY2) and sends them packed (1280x720 at 30 fps is ~40 MB/s); each frame drives the node. `CAMERA_STOP` follows half a second after the last app stops (streams pause briefly while they start; that must not cycle the camera). Chromium and Edge need `WebRtcPipeWireCamera` (see `womarchy-provision-user`).
 - With an older viewer there is no media token: mediad doesn't start, and PipeWire's tunnel to WSLg's PulseAudio (`wsl/audio.sh`) is the output, as before.
 
 ## Display changes and DPI
@@ -100,7 +101,7 @@ Costs worth knowing (measured, see [WORKLOG.md](WORKLOG.md)):
 | Reader | Reads messages and hands each frame to its output's presenter. |
 | Presenter (one per output) | Owns its D3D11 device and swapchain (`SetMaximumFrameLatency(1)`). It uploads damage, presents, acks, and recovers from device loss by asking for a full frame (`REFRESH`). |
 | Clipboard | Connects to `womarchy-clipd` and syncs text, or images (PNG) when there is no text, both ways. It converts between PNG and Windows bitmaps with Windows' own imaging component. Content marked secret by a password manager is not sent from either side. |
-| Media | Connects to `womarchy-mediad` and follows its streams. A player thread (while Linux plays) and a recorder thread (while a Linux app records) each use WASAPI in shared mode on Windows' default device, and reopen it when the default changes. |
+| Media | Connects to `womarchy-mediad` and follows its streams. A player thread (while Linux plays) and a recorder thread (while a Linux app records) each use WASAPI in shared mode on Windows' default device, and reopen it when the default changes. A capture thread per camera in use reads frames with Media Foundation. |
 | Session waiter | Waits for `wsl.exe` to exit and returns its exit code. |
 
 ## Updates, rollback and signing

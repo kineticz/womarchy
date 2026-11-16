@@ -61,7 +61,7 @@ windows\omarchy\target\release\omarchy.exe --distro omarchy-test --windowed 1600
 - `--session PATH` runs another session script (e.g. the repo's copy of `womarchy-session`).
 - `--input-script FILE` drives the session (keys, typing, pointer, screenshots; see `windows/omarchy/src/script.rs`).
 - `--dump-frame FILE --dump-after FRAMES` saves what the first output shows.
-- Audio without restarting the desktop: run `womarchy-mediad` by hand with a test port and token (`WOMARCHY_VSOCK_PORT=56900 WOMARCHY_MEDIA_TOKEN=<64 hex>`), then on Windows `omarchy media-test <vm id> 56900` with the same `WOMARCHY_MEDIA_TOKEN` (`WSLENV=WOMARCHY_MEDIA_TOKEN` passes it from WSL). Play to `womarchy-sink`, record from `womarchy-source`. `WOMARCHY_MEDIA_UNIX=/path` makes mediad listen on a Unix socket instead, for a fake viewer.
+- Audio without restarting the desktop: run `womarchy-mediad` by hand with a test port and token (`WOMARCHY_VSOCK_PORT=56900 WOMARCHY_MEDIA_TOKEN=<64 hex>`), then on Windows `omarchy media-test <vm id> 56900` with the same `WOMARCHY_MEDIA_TOKEN` (`WSLENV=WOMARCHY_MEDIA_TOKEN` passes it from WSL). Play to `womarchy-sink`, record from `womarchy-source`, stream from `womarchy-camera-0` (e.g. `gst-launch-1.0 pipewiresrc target-object=womarchy-camera-0 num-buffers=90 ! fakesink`). `WOMARCHY_MEDIA_UNIX=/path` makes mediad listen on a Unix socket instead, for a fake viewer.
 
 ## Tests
 

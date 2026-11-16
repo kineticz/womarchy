@@ -12,8 +12,9 @@
 #    hypr bindings (Super+L, Ctrl+Alt+Del), monitors from Windows, uwsm env,
 #    shell.json (no idle lock, no Wi-Fi/Bluetooth/power widgets), Omarchy menu
 #    (no suspend/hibernate/firmware/Wi-Fi/Bluetooth; Shutdown returns to
-#    Windows), update hooks that reassert WSL invariants, the lite profile, and
-#    re-enabled animations when the GPU path works.
+#    Windows), update hooks that reassert WSL invariants, PipeWire cameras in
+#    Chromium/Edge, the lite profile, and re-enabled animations when the GPU
+#    path works.
 # Idempotent. Marker: ~/.local/state/womarchy/provisioned
 
 set -euo pipefail
@@ -26,7 +27,8 @@ Per-user setup for Omarchy on WSL, run as the user:
   1. upstream `omarchy-provision-user --first-install` (OMARCHY_SETUP_CONTEXT=wsl);
      OMARCHY_USER_NAME / OMARCHY_USER_EMAIL feed git and XCompose
   2. the WSL user overlay from /usr/lib/womarchy/user (hypr bindings and
-     monitors, uwsm env, shell.json, Omarchy menu, update hooks, lite profile)
+     monitors, uwsm env, shell.json, Omarchy menu, update hooks, browser
+     camera flag, lite profile)
 --overlay-only  skip step 1        --force  run again although already done
 USAGE
 }
@@ -156,6 +158,31 @@ fi
 # --- Update hooks -----------------------------------------------------------------
 for hook in post-update.d/10-womarchy pre-refresh-pacman.d/10-womarchy; do
   install -D -m 0755 "$src/omarchy/hooks/$hook" "$cfg/omarchy/hooks/$hook"
+done
+
+# --- Browser camera ----------------------------------------------------------------
+# Windows' cameras reach Linux as PipeWire nodes (womarchy-mediad). Chromium-based
+# browsers only use those with the WebRtcPipeWireCamera feature (else they look for
+# /dev/video*, which WSL has none of). Chromium honours only the last
+# --enable-features, so the feature joins that line instead of adding another.
+enable_browser_feature() { # FLAGS-FILE FEATURE
+  local file=$1 feature=$2 line
+  if [[ ! -f $file ]]; then
+    printf -- '--enable-features=%s\n' "$feature" >"$file"
+    return
+  fi
+  grep -q -- "$feature" "$file" && return
+  line=$(grep -n -- '^--enable-features=' "$file" | tail -1 | cut -d: -f1)
+  if [[ -n $line ]]; then
+    sed -i "${line}s/[[:space:]]*\$/,$feature/" "$file"
+  else
+    [[ -s $file && -n $(tail -c1 "$file") ]] && echo >>"$file"
+    printf -- '--enable-features=%s\n' "$feature" >>"$file"
+  fi
+}
+command -v chromium >/dev/null && enable_browser_feature "$cfg/chromium-flags.conf" WebRtcPipeWireCamera
+for edge in microsoft-edge-stable microsoft-edge-beta microsoft-edge-dev; do
+  command -v "$edge" >/dev/null && enable_browser_feature "$cfg/$edge-flags.conf" WebRtcPipeWireCamera
 done
 
 # --- Lite profile ------------------------------------------------------------------

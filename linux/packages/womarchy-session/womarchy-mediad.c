@@ -19,6 +19,12 @@
  * indicator means what it says. Clock drift: the playback side is corrected by the viewer (it adjusts
  * WASAPI's sample rate to its buffer level); the capture side here, by dropping excess frames.
  *
+ * Cameras: the viewer lists Windows' cameras and their modes (CAMERA_LIST, NV12 only); each becomes a
+ * PipeWire Video/Source with media.role Camera, which is what the camera portal (and so Chromium and
+ * Firefox) looks for. When an app starts streaming we send CAMERA_START with the mode it negotiated and
+ * the viewer sends CAMERA_FRAMEs until CAMERA_STOP; each frame drives the node (it is the graph's
+ * driver, like a real camera).
+ *
  * Testing: WOMARCHY_MEDIA_UNIX=/path listens on a Unix socket instead of vsock.
  * Runs as the user service womarchy-mediad.service inside the graphical session.
  */
@@ -42,6 +48,8 @@
 #include <pipewire/pipewire.h>
 #include <pipewire/extensions/metadata.h>
 #include <spa/param/audio/format-utils.h>
+#include <spa/param/video/format-utils.h>
+#include <spa/buffer/meta.h>
 #include <spa/utils/json.h>
 #include <spa/utils/result.h>
 
@@ -60,8 +68,21 @@
 #define WDP_AUDIO_CAPTURE_FAILED 323u
 #define WDP_MEDIA_CAP_PLAYBACK (1u << 0)
 #define WDP_MEDIA_CAP_CAPTURE (1u << 1)
+#define WDP_MEDIA_CAP_CAMERA (1u << 2)
+#define WDP_CAMERA_LIST 330u
+#define WDP_CAMERA_START 331u
+#define WDP_CAMERA_FRAME 332u
+#define WDP_CAMERA_STOP 333u
+#define WDP_CAMERA_FAILED 334u
+#define WDP_CAMERA_NV12 1u
+#define WDP_MAX_CAMERAS 8u
+#define WDP_MAX_CAMERA_MODES 32u
+#define WDP_MAX_CAMERA_WIDTH 1920u
+#define WDP_MAX_CAMERA_HEIGHT 1080u
 #define WDP_AUDIO_F32LE 1u
 #define WDP_MAX_AUDIO_DATA (1u << 20)
+#define WDP_MAX_CAMERA_FRAME (8u << 20)
+#define CAMERA_OFF_DELAY_MS 500
 
 /* --- our formats */
 #define RATE 48000u
@@ -90,6 +111,28 @@ static void logf_(const char *fmt, ...) {
 struct ring {
     float *data;
     uint32_t cap, rd, len; /* in samples */
+};
+
+struct mode {
+    uint32_t width, height, fps_num, fps_den;
+};
+
+struct camera {
+    struct mediad *m;
+    uint32_t id;
+    char name[65];
+    uint32_t nmodes;
+    struct mode modes[WDP_MAX_CAMERA_MODES];
+    struct pw_stream *stream;
+    struct spa_hook listener;
+    struct mode format; /* negotiated */
+    bool have_format, streaming;
+    bool on;                       /* the viewer has the camera on (CAMERA_START sent, no STOP yet) */
+    struct spa_source *off_timer;  /* a STOP waits briefly: streams pause for a moment when they start */
+    uint8_t *frame; /* the newest frame, NV12 packed */
+    size_t frame_size;
+    bool frame_ready;
+    uint64_t seq;
 };
 
 struct mediad {
@@ -126,6 +169,9 @@ struct mediad {
     struct spa_hook source_listener;
     bool capturing, priming;
     struct ring ring;
+
+    struct camera cameras[WDP_MAX_CAMERAS];
+    uint32_t ncameras;
 };
 
 /* --- output queue */
@@ -354,6 +400,247 @@ static struct pw_stream *make_stream(struct mediad *m, bool sink) {
     return s;
 }
 
+/* --- cameras: viewer -> Linux apps */
+
+static void camera_send_start(struct camera *c) {
+    c->on = true;
+    uint32_t p[6] = {htole32(c->id), htole32(c->format.width), htole32(c->format.height), htole32(c->format.fps_num),
+                     htole32(c->format.fps_den), htole32(WDP_CAMERA_NV12)};
+    send_msg(c->m, WDP_CAMERA_START, p, sizeof p, NULL, 0);
+    logf_("camera %s: on, %ux%u at %u/%u fps (an app is streaming)", c->name, c->format.width, c->format.height, c->format.fps_num, c->format.fps_den);
+}
+
+static void camera_send_stop(struct camera *c) {
+    c->on = false;
+    uint32_t id = htole32(c->id);
+    send_msg(c->m, WDP_CAMERA_STOP, &id, sizeof id, NULL, 0);
+    logf_("camera %s: off", c->name);
+}
+
+static void on_camera_process(void *data) {
+    struct camera *c = data;
+    if (!c->frame_ready)
+        return;
+    struct pw_buffer *b = pw_stream_dequeue_buffer(c->stream);
+    if (!b)
+        return; /* the app has not returned a buffer yet: this frame is dropped */
+    struct spa_data *d = &b->buffer->datas[0];
+    if (d->data && d->maxsize >= c->frame_size) {
+        memcpy(d->data, c->frame, c->frame_size);
+        d->chunk->offset = 0;
+        d->chunk->stride = (int32_t)c->format.width;
+        d->chunk->size = (uint32_t)c->frame_size;
+        struct spa_meta_header *h = spa_buffer_find_meta_data(b->buffer, SPA_META_Header, sizeof *h);
+        if (h) {
+            struct timespec ts;
+            clock_gettime(CLOCK_MONOTONIC, &ts);
+            h->pts = SPA_TIMESPEC_TO_NSEC(&ts);
+            h->flags = 0;
+            h->seq = c->seq++;
+            h->dts_offset = 0;
+        }
+    }
+    c->frame_ready = false;
+    pw_stream_queue_buffer(c->stream, b);
+}
+
+static void on_camera_param_changed(void *data, uint32_t id, const struct spa_pod *param) {
+    struct camera *c = data;
+    if (id != SPA_PARAM_Format || !param)
+        return;
+    struct spa_video_info_raw info = {0};
+    if (spa_format_video_raw_parse(param, &info) < 0)
+        return;
+    struct mode f = {info.size.width, info.size.height, info.framerate.num, info.framerate.denom};
+    bool known = false;
+    for (uint32_t i = 0; i < c->nmodes; i++)
+        known |= memcmp(&c->modes[i], &f, sizeof f) == 0;
+    if (!known) {
+        logf_("camera %s: unexpected format %ux%u", c->name, f.width, f.height);
+        return;
+    }
+    bool changed = !c->have_format || memcmp(&c->format, &f, sizeof f) != 0;
+    c->format = f;
+    c->have_format = true;
+    c->frame_size = (size_t)f.width * f.height * 3 / 2;
+    uint8_t *p = realloc(c->frame, c->frame_size);
+    if (!p) {
+        c->have_format = false;
+        return;
+    }
+    c->frame = p;
+    c->frame_ready = false;
+
+    uint8_t buf[1024];
+    struct spa_pod_builder b = SPA_POD_BUILDER_INIT(buf, sizeof buf);
+    const struct spa_pod *params[2];
+    params[0] = spa_pod_builder_add_object(&b, SPA_TYPE_OBJECT_ParamBuffers, SPA_PARAM_Buffers,
+        SPA_PARAM_BUFFERS_buffers, SPA_POD_CHOICE_RANGE_Int(4, 2, 8),
+        SPA_PARAM_BUFFERS_blocks, SPA_POD_Int(1),
+        SPA_PARAM_BUFFERS_size, SPA_POD_Int((int32_t)c->frame_size),
+        SPA_PARAM_BUFFERS_stride, SPA_POD_Int((int32_t)f.width),
+        SPA_PARAM_BUFFERS_dataType, SPA_POD_CHOICE_FLAGS_Int((1 << SPA_DATA_MemPtr) | (1 << SPA_DATA_MemFd)));
+    params[1] = spa_pod_builder_add_object(&b, SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
+        SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Header),
+        SPA_PARAM_META_size, SPA_POD_Int(sizeof(struct spa_meta_header)));
+    pw_stream_update_params(c->stream, params, 2);
+    if (changed && c->on) { /* renegotiated while on: restart in the new mode */
+        camera_send_stop(c);
+        camera_send_start(c);
+    }
+}
+
+static void on_camera_state(void *data, enum pw_stream_state old, enum pw_stream_state state, const char *error) {
+    struct camera *c = data;
+    (void)old;
+    if (state == PW_STREAM_STATE_ERROR)
+        logf_("camera %s: %s", c->name, error ? error : "error");
+    bool want = state == PW_STREAM_STATE_STREAMING && c->have_format;
+    if (want == c->streaming)
+        return;
+    c->streaming = want;
+    c->frame_ready = false;
+    struct pw_loop *loop = pw_main_loop_get_loop(c->m->loop);
+    if (want) {
+        pw_loop_update_timer(loop, c->off_timer, NULL, NULL, false); /* still on from a moment ago */
+        if (!c->on)
+            camera_send_start(c);
+    } else if (c->on) {
+        struct timespec delay = {0, CAMERA_OFF_DELAY_MS * 1000000L};
+        pw_loop_update_timer(loop, c->off_timer, &delay, NULL, false);
+    }
+}
+
+static void on_camera_off_timer(void *data, uint64_t expirations) {
+    struct camera *c = data;
+    (void)expirations;
+    if (!c->streaming && c->on)
+        camera_send_stop(c);
+}
+
+static const struct pw_stream_events camera_events = {
+    PW_VERSION_STREAM_EVENTS,
+    .state_changed = on_camera_state,
+    .param_changed = on_camera_param_changed,
+    .process = on_camera_process,
+};
+
+static void cameras_stop(struct mediad *m) {
+    for (uint32_t i = 0; i < m->ncameras; i++) {
+        struct camera *c = &m->cameras[i];
+        if (c->stream)
+            pw_stream_destroy(c->stream);
+        if (c->off_timer)
+            pw_loop_destroy_source(pw_main_loop_get_loop(m->loop), c->off_timer);
+        free(c->frame);
+        memset(c, 0, sizeof *c);
+    }
+    m->ncameras = 0;
+}
+
+static void camera_create(struct mediad *m, struct camera *c) {
+    char node_name[64], description[128];
+    snprintf(node_name, sizeof node_name, "womarchy-camera-%u", c->id);
+    snprintf(description, sizeof description, "%s (Windows)", c->name);
+    struct pw_properties *props = pw_properties_new(
+        PW_KEY_MEDIA_TYPE, "Video",
+        PW_KEY_MEDIA_CATEGORY, "Capture",
+        PW_KEY_MEDIA_ROLE, "Camera",
+        PW_KEY_MEDIA_CLASS, "Video/Source",
+        PW_KEY_NODE_NAME, node_name,
+        PW_KEY_NODE_DESCRIPTION, description,
+        "device.icon-name", "camera-web",
+        /* turn the camera off soon after the last app stops using it */
+        "session.suspend-timeout-seconds", "1",
+        NULL);
+    c->m = m;
+    c->off_timer = pw_loop_add_timer(pw_main_loop_get_loop(m->loop), on_camera_off_timer, c);
+    c->stream = pw_stream_new(m->core, node_name, props);
+    if (!c->stream)
+        return;
+    pw_stream_add_listener(c->stream, &c->listener, &camera_events, c);
+
+    uint8_t buf[16384];
+    struct spa_pod_builder b = SPA_POD_BUILDER_INIT(buf, sizeof buf);
+    const struct spa_pod *params[WDP_MAX_CAMERA_MODES];
+    for (uint32_t i = 0; i < c->nmodes; i++) {
+        struct mode *f = &c->modes[i];
+        params[i] = spa_pod_builder_add_object(&b, SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat,
+            SPA_FORMAT_mediaType, SPA_POD_Id(SPA_MEDIA_TYPE_video),
+            SPA_FORMAT_mediaSubtype, SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw),
+            SPA_FORMAT_VIDEO_format, SPA_POD_Id(SPA_VIDEO_FORMAT_NV12),
+            SPA_FORMAT_VIDEO_size, SPA_POD_Rectangle(&SPA_RECTANGLE(f->width, f->height)),
+            SPA_FORMAT_VIDEO_framerate, SPA_POD_Fraction(&SPA_FRACTION(f->fps_num, f->fps_den)));
+    }
+    if (pw_stream_connect(c->stream, PW_DIRECTION_OUTPUT, PW_ID_ANY, PW_STREAM_FLAG_DRIVER | PW_STREAM_FLAG_MAP_BUFFERS, params, c->nmodes) < 0) {
+        pw_stream_destroy(c->stream);
+        c->stream = NULL;
+    }
+}
+
+static uint32_t rd32(const uint8_t *p) {
+    uint32_t v;
+    memcpy(&v, p, 4);
+    return le32toh(v);
+}
+
+/* CAMERA_LIST: u32 count, then per camera u32 id, char name[64], u32 nmodes, nmodes * wdp_camera_mode */
+static void cameras_from_list(struct mediad *m, const uint8_t *p, uint32_t size) {
+    if (!(m->caps & WDP_MEDIA_CAP_CAMERA))
+        return;
+    cameras_stop(m);
+    const uint8_t *end = p + size;
+    if (size < 4)
+        return;
+    uint32_t count = rd32(p);
+    p += 4;
+    for (uint32_t i = 0; i < count && m->ncameras < WDP_MAX_CAMERAS; i++) {
+        if (end - p < 4 + 64 + 4)
+            break;
+        struct camera *c = &m->cameras[m->ncameras];
+        c->id = rd32(p);
+        memcpy(c->name, p + 4, 64);
+        c->name[64] = 0;
+        for (char *q = c->name; *q; q++)
+            if ((unsigned char)*q < 0x20)
+                *q = ' ';
+        uint32_t n = rd32(p + 68);
+        p += 72;
+        if (n > WDP_MAX_CAMERA_MODES || (size_t)(end - p) < (size_t)n * 16)
+            break;
+        c->nmodes = 0;
+        for (uint32_t k = 0; k < n; k++, p += 16) {
+            struct mode f = {rd32(p), rd32(p + 4), rd32(p + 8), rd32(p + 12)};
+            if (f.width < 2 || f.width > WDP_MAX_CAMERA_WIDTH || f.height < 2 || f.height > WDP_MAX_CAMERA_HEIGHT ||
+                f.width % 2 || f.height % 2 || !f.fps_num || !f.fps_den)
+                continue;
+            c->modes[c->nmodes++] = f;
+        }
+        if (!c->nmodes)
+            continue;
+        m->ncameras++;
+        camera_create(m, c);
+        logf_("camera %s: %u modes%s", c->name, c->nmodes, c->stream ? "" : " (could not create its node)");
+    }
+}
+
+static void camera_frame(struct mediad *m, const uint8_t *p, uint32_t size) {
+    if (size < 24)
+        return;
+    uint32_t id = rd32(p), w = rd32(p + 4), h = rd32(p + 8), format = rd32(p + 12);
+    for (uint32_t i = 0; i < m->ncameras; i++) {
+        struct camera *c = &m->cameras[i];
+        if (c->id != id || !c->streaming || !c->stream)
+            continue;
+        if (format != WDP_CAMERA_NV12 || w != c->format.width || h != c->format.height || size - 24 != c->frame_size)
+            return; /* a frame from before a mode change */
+        memcpy(c->frame, p + 24, c->frame_size);
+        c->frame_ready = true;
+        pw_stream_trigger_process(c->stream);
+        return;
+    }
+}
+
 /* --- defaults: when the configured default is WSLg's tunnel (or nothing), make ours the default */
 
 static void json_name(const char *value, char *out, size_t len) {
@@ -450,6 +737,7 @@ static void streams_stop(struct mediad *m) {
     }
     m->playing = m->capturing = false;
     ring_clear(&m->ring);
+    cameras_stop(m);
 }
 
 static void conn_close(struct mediad *m, const char *why) {
@@ -475,6 +763,16 @@ static void handle_msg(struct mediad *m, uint32_t type, const uint8_t *p, uint32
         logf_("the viewer cannot open the Windows microphone (HRESULT 0x%08x; microphone access for desktop apps off?)", hr);
         break;
     }
+    case WDP_CAMERA_LIST:
+        cameras_from_list(m, p, size);
+        break;
+    case WDP_CAMERA_FRAME:
+        camera_frame(m, p, size);
+        break;
+    case WDP_CAMERA_FAILED:
+        if (size >= 8)
+            logf_("the viewer cannot open camera %u (HRESULT 0x%08x; camera access for desktop apps off, or in use?)", rd32(p), rd32(p + 4));
+        break;
     default:
         break; /* unknown: skip */
     }
@@ -489,6 +787,8 @@ static void on_conn_io(void *data, int fd, uint32_t mask) {
     for (;;) {
         if (m->in_cap - m->in_len < 65536) {
             size_t cap = m->in_cap ? m->in_cap * 2 : 131072;
+            if (cap > 4 * (size_t)WDP_MAX_CAMERA_FRAME)
+                break; /* plenty buffered: parse it first */
             uint8_t *p = realloc(m->in, cap);
             if (!p) {
                 conn_close(m, "out of memory");
@@ -514,7 +814,7 @@ static void on_conn_io(void *data, int fd, uint32_t mask) {
     size_t off = 0;
     while (m->fd >= 0 && m->in_len - off >= 8) {
         uint32_t type = le32toh(*(uint32_t *)(m->in + off)), size = le32toh(*(uint32_t *)(m->in + off + 4));
-        if (size > WDP_MAX_AUDIO_DATA) {
+        if (size > (type == WDP_CAMERA_FRAME ? WDP_MAX_CAMERA_FRAME : WDP_MAX_AUDIO_DATA)) {
             conn_close(m, "oversized message");
             return;
         }
@@ -594,7 +894,8 @@ static void on_accept(void *data, int fd, uint32_t mask) {
     m->caps = (uint32_t)caps;
     m->dropping = false;
     m->conn_src = pw_loop_add_io(pw_main_loop_get_loop(m->loop), c, SPA_IO_IN, false, on_conn_io, m);
-    logf_("viewer connected (%s%s)", caps & WDP_MEDIA_CAP_PLAYBACK ? "speakers " : "", caps & WDP_MEDIA_CAP_CAPTURE ? "microphone" : "");
+    logf_("viewer connected (%s%s%s)", caps & WDP_MEDIA_CAP_PLAYBACK ? "speakers " : "", caps & WDP_MEDIA_CAP_CAPTURE ? "microphone " : "",
+          caps & WDP_MEDIA_CAP_CAMERA ? "cameras" : "");
     if (caps & WDP_MEDIA_CAP_PLAYBACK)
         m->sink = make_stream(m, true);
     if (caps & WDP_MEDIA_CAP_CAPTURE)
