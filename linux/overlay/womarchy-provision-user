@@ -163,8 +163,13 @@ done
 # --- Browser camera ----------------------------------------------------------------
 # Windows' cameras reach Linux as PipeWire nodes (womarchy-mediad). Chromium-based
 # browsers only use those with the WebRtcPipeWireCamera feature (else they look for
-# /dev/video*, which WSL has none of). Chromium honours only the last
-# --enable-features, so the feature joins that line instead of adding another.
+# /dev/video*, which WSL has none of). Two places, because web apps (Teams, Meet
+# as PWAs) start the browser binary directly and never read the flags file:
+# - the browser's own flags page setting ("Local State", like chrome://flags), which
+#   holds however the browser starts; only written while the browser is closed
+#   (it rewrites the file on exit), and a choice made there by the user is kept;
+# - the launcher's flags file. Chromium honours only the last --enable-features,
+#   so the feature joins that line instead of adding another.
 enable_browser_feature() { # FLAGS-FILE FEATURE
   local file=$1 feature=$2 line
   if [[ ! -f $file ]]; then
@@ -180,10 +185,36 @@ enable_browser_feature() { # FLAGS-FILE FEATURE
     printf -- '--enable-features=%s\n' "$feature" >>"$file"
   fi
 }
-command -v chromium >/dev/null && enable_browser_feature "$cfg/chromium-flags.conf" WebRtcPipeWireCamera
+enable_browser_lab() { # USER-DATA-DIR PROCESS-NAME FLAGS-PAGE
+  local dir=$1 proc=$2 page=$3 state="$1/Local State" tmp
+  local lab=enable-webrtc-pipewire-camera
+  if pgrep -u "$(id -u)" -x "$proc" >/dev/null; then
+    warn "$proc is running: enable $page/#$lab there (or close it and run womarchy-provision-user --overlay-only --force)"
+    return
+  fi
+  mkdir -p "$dir"
+  [[ -s $state ]] || echo '{}' >"$state"
+  tmp=$(mktemp)
+  if jq --arg lab "$lab" '
+      if ((.browser.enabled_labs_experiments // []) | any(startswith($lab + "@"))) then .
+      else .browser.enabled_labs_experiments = ((.browser.enabled_labs_experiments // []) + [$lab + "@1"]) end
+    ' "$state" >"$tmp"; then
+    cat "$tmp" >"$state"
+  else
+    warn "could not update $state; enable $page/#$lab by hand"
+  fi
+  rm -f "$tmp"
+}
+if command -v chromium >/dev/null; then
+  enable_browser_feature "$cfg/chromium-flags.conf" WebRtcPipeWireCamera
+  enable_browser_lab "$cfg/chromium" chromium chrome://flags
+fi
 for edge in microsoft-edge-stable microsoft-edge-beta microsoft-edge-dev; do
   command -v "$edge" >/dev/null && enable_browser_feature "$cfg/$edge-flags.conf" WebRtcPipeWireCamera
 done
+if command -v microsoft-edge-stable >/dev/null; then
+  enable_browser_lab "$cfg/microsoft-edge" msedge edge://flags
+fi
 
 # --- Lite profile ------------------------------------------------------------------
 # The image was built without the heavy preinstalled apps: hide their bindings.
