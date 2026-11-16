@@ -9,7 +9,8 @@
 //!   omarchy rollback [--list] [--to POINT] [--yes]            undo the package changes of an update
 //!   omarchy backup [--to DIR] / omarchy restore [FILE]        the whole distro as one file
 //! Development: --windowed WxH [--monitors N] [--scale S], --session PATH, --port N, --stats,
-//! --dump-frame FILE [--dump-after FRAMES], --input-script FILE [--shot-dir DIR]
+//! --dump-frame FILE [--dump-after FRAMES], --input-script FILE [--shot-dir DIR];
+//! `omarchy media-test VMID PORT` (token in WOMARCHY_MEDIA_TOKEN) connects only the media channel.
 //!
 //! How a session starts: we create one window per monitor, run `wsl.exe -d <distro> --exec
 //! womarchy-session` with the session's secrets in the environment (WSLENV), read the VM id it prints,
@@ -21,6 +22,7 @@ mod clipimage;
 mod install;
 mod keymap;
 mod maintain;
+mod media;
 mod monitors;
 mod net;
 mod script;
@@ -79,6 +81,7 @@ fn usage() -> ! {
     println!("       omarchy restore [FILE] [--yes]                   replace the distro with a backup");
     println!("development: --windowed WxH [--monitors N] [--scale S], --session PATH, --port N, --stats,");
     println!("             --dump-frame FILE [--dump-after FRAMES], --input-script FILE [--shot-dir DIR]");
+    println!("             media-test VMID PORT   only the audio channel, to a running womarchy-mediad (WOMARCHY_MEDIA_TOKEN)");
     println!("Ctrl+Alt+End minimises the desktop. OMARCHY_DISTRO sets the default distro name (Omarchy).");
     println!("omarchy --version prints this program's version.");
     std::process::exit(0)
@@ -351,8 +354,43 @@ fn watch_display_changes(args: &Args, current: Arc<Mutex<Vec<wdp::Monitor>>>) {
     }));
 }
 
+/// The session's secrets: one per channel (display, clipboard, media).
+#[derive(Clone, Copy)]
+struct SessionTokens {
+    display: [u8; wdp::TOKEN_BYTES],
+    clip: [u8; wdp::TOKEN_BYTES],
+    media: [u8; wdp::TOKEN_BYTES],
+}
+
+/// Development: connect only the media channel to a womarchy-mediad started by hand, e.g.
+///   WOMARCHY_MEDIA_TOKEN=<64 hex> WOMARCHY_VSOCK_PORT=<port> womarchy-mediad      (in WSL)
+///   set WOMARCHY_MEDIA_TOKEN=<same>  &  omarchy media-test <vm id> <port>          (on Windows)
+/// and play and record in Linux. Runs until Ctrl+C.
+fn media_test() -> Option<i32> {
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.first().map(String::as_str) != Some("media-test") {
+        return None;
+    }
+    let (Some(vm), Some(port)) = (argv.get(1).and_then(|v| net::parse_guid(v)), argv.get(2).and_then(|p| p.parse::<u32>().ok())) else {
+        eprintln!("usage: omarchy media-test VMID PORT   (WOMARCHY_MEDIA_TOKEN in the environment)");
+        return Some(2);
+    };
+    let token = std::env::var("WOMARCHY_MEDIA_TOKEN").ok().and_then(|h| {
+        (h.len() == 2 * wdp::TOKEN_BYTES && h.bytes().all(|b| b.is_ascii_hexdigit())).then(|| std::array::from_fn(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).unwrap_or(0)))
+    });
+    let Some(token) = token else {
+        eprintln!("omarchy media-test: WOMARCHY_MEDIA_TOKEN must be 64 hex characters");
+        return Some(2);
+    };
+    net::init();
+    media::start(vm, port + wdp::MEDIA_PORT_OFFSET, token);
+    loop {
+        thread::sleep(Duration::from_secs(3600));
+    }
+}
+
 /// Connect to the compositor, check it knows the token, then run the display side of the session.
-fn run_display(vm: String, port: u32, token: [u8; wdp::TOKEN_BYTES], clip_token: [u8; wdp::TOKEN_BYTES], current: Arc<Mutex<Vec<wdp::Monitor>>>, opts: viewer::RenderOptions) -> Result<(), String> {
+fn run_display(vm: String, port: u32, tokens: SessionTokens, current: Arc<Mutex<Vec<wdp::Monitor>>>, opts: viewer::RenderOptions) -> Result<(), String> {
     let vm_guid = net::parse_guid(&vm).ok_or_else(|| format!("the session reported a bad VM id: {}", vm))?;
     eprintln!("[omarchy] session VM {}, connecting to port {}", vm, port);
     let start = Instant::now();
@@ -368,12 +406,12 @@ fn run_display(vm: String, port: u32, token: [u8; wdp::TOKEN_BYTES], clip_token:
     // answers once its event loop runs, which on a cold start (3 4K outputs, nothing cached) can be
     // well after it started listening: allow the rest of the startup time.
     conn.set_recv_timeout(Some(STARTUP_TIMEOUT.saturating_sub(start.elapsed()).max(Duration::from_secs(10))));
-    conn.send_msg(&wdp::hello(&token, (1 << wdp::TRANSPORT_INLINE) | (1 << wdp::TRANSPORT_SECTION))).map_err(|e| e.to_string())?;
+    conn.send_msg(&wdp::hello(&tokens.display, (1 << wdp::TRANSPORT_INLINE) | (1 << wdp::TRANSPORT_SECTION))).map_err(|e| e.to_string())?;
     let mut payload = Vec::new();
     let ty = conn.recv_msg(&mut payload).map_err(|e| format!("the desktop did not answer: {}", e))?;
     let mut r = wdp::Reader::new(&payload);
     let (version, transport, vm_id, proof) = (r.u32(), r.u32(), r.str_fixed(40), r.take(wdp::PROOF_BYTES));
-    if ty != wdp::WELCOME || version != Some(wdp::VERSION) || !wdp::proves(&token, proof.unwrap_or(&[])) {
+    if ty != wdp::WELCOME || version != Some(wdp::VERSION) || !wdp::proves(&tokens.display, proof.unwrap_or(&[])) {
         return Err("the program on the desktop's port did not prove it is our session; not sending it any input".into());
     }
     conn.set_recv_timeout(None);
@@ -394,7 +432,8 @@ fn run_display(vm: String, port: u32, token: [u8; wdp::TOKEN_BYTES], clip_token:
         conn.send_msg(&wdp::monitors(&cur)).map_err(|e| e.to_string())?;
         viewer::start_input(conn.clone());
     }
-    clip::start(vm_guid, port + wdp::CLIP_PORT_OFFSET, clip_token);
+    clip::start(vm_guid, port + wdp::CLIP_PORT_OFFSET, tokens.clip);
+    media::start(vm_guid, port + wdp::MEDIA_PORT_OFFSET, tokens.media);
     viewer::run_session(conn, transport, vm_id, opts)
 }
 
@@ -403,7 +442,7 @@ fn main() {
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
-    if let Some(rc) = subcommand() {
+    if let Some(rc) = subcommand().or_else(media_test) {
         std::process::exit(rc);
     }
     let args = parse_args();
@@ -431,8 +470,7 @@ fn main() {
         fail(hidden_console, "no monitors found");
     }
     let current = Arc::new(Mutex::new(mons.clone()));
-    let token: [u8; wdp::TOKEN_BYTES] = random_bytes();
-    let clip_token: [u8; wdp::TOKEN_BYTES] = random_bytes();
+    let tokens = SessionTokens { display: random_bytes(), clip: random_bytes(), media: random_bytes() };
     let port = args.port.unwrap_or_else(|| 50000 + (u32::from_le_bytes(random_bytes::<4>()) % 10000));
 
     viewer::create_windows(&mons, args.windowed.is_some());
@@ -450,14 +488,15 @@ fn main() {
         cmd.arg("-u").arg(u);
     }
     cmd.arg("--exec").arg(&args.session);
-    cmd.env("WOMARCHY_TOKEN", hex(&token))
-        .env("WOMARCHY_CLIP_TOKEN", hex(&clip_token))
+    cmd.env("WOMARCHY_TOKEN", hex(&tokens.display))
+        .env("WOMARCHY_CLIP_TOKEN", hex(&tokens.clip))
+        .env("WOMARCHY_MEDIA_TOKEN", hex(&tokens.media))
         .env("WOMARCHY_VSOCK_PORT", port.to_string())
         .env("WOMARCHY_MONITORS", monitors::to_env(&mons))
         .env(
             "WSLENV",
             format!(
-                "{}{}WOMARCHY_TOKEN/u:WOMARCHY_CLIP_TOKEN/u:WOMARCHY_VSOCK_PORT/u:WOMARCHY_MONITORS/u",
+                "{}{}WOMARCHY_TOKEN/u:WOMARCHY_CLIP_TOKEN/u:WOMARCHY_MEDIA_TOKEN/u:WOMARCHY_VSOCK_PORT/u:WOMARCHY_MONITORS/u",
                 wslenv,
                 if wslenv.is_empty() { "" } else { ":" }
             ),
@@ -526,7 +565,7 @@ fn main() {
             // (no VM id also when the session exits early, e.g. for first-run setup: then the
             // child-wait thread ends the message loop)
             let Ok(vm) = vm_rx.recv_timeout(STARTUP_TIMEOUT) else { return };
-            if let Err(e) = run_display(vm, port, token, clip_token, current, opts) {
+            if let Err(e) = run_display(vm, port, tokens, current, opts) {
                 *error.lock().unwrap() = Some(e);
                 viewer::post_quit();
             }

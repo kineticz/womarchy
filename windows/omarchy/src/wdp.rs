@@ -44,6 +44,24 @@ pub const CLIP_TEXT: u32 = 201;
 pub const CLIP_WELCOME: u32 = 202;
 pub const CLIP_IMAGE: u32 = 203;
 
+// media channel (to womarchy-mediad on port + MEDIA_PORT_OFFSET)
+pub const MEDIA_PORT_OFFSET: u32 = 2;
+pub const MEDIA_HELLO: u32 = 300;
+pub const MEDIA_WELCOME: u32 = 301;
+pub const AUDIO_PLAY_START: u32 = 310;
+pub const AUDIO_PLAY_DATA: u32 = 311;
+pub const AUDIO_PLAY_STOP: u32 = 312;
+pub const AUDIO_CAPTURE_START: u32 = 320;
+pub const AUDIO_CAPTURE_DATA: u32 = 321;
+pub const AUDIO_CAPTURE_STOP: u32 = 322;
+pub const AUDIO_CAPTURE_FAILED: u32 = 323;
+pub const MEDIA_CAP_PLAYBACK: u32 = 1 << 0;
+pub const MEDIA_CAP_CAPTURE: u32 = 1 << 1;
+pub const AUDIO_F32LE: u32 = 1;
+pub const MAX_AUDIO_DATA: usize = 1 << 20;
+pub const MAX_AUDIO_RATE: u32 = 384_000;
+pub const MAX_AUDIO_CHANNELS: u32 = 8;
+
 pub const TRANSPORT_INLINE: u32 = 1;
 pub const TRANSPORT_SECTION: u32 = 2;
 
@@ -206,7 +224,36 @@ pub fn clip_image(png: &[u8]) -> Vec<u8> {
     m.finish()
 }
 
-/// Does a WELCOME/CLIP_WELCOME's proof match the second half of our token? (constant time)
+pub fn media_hello(token: &[u8; TOKEN_BYTES], caps: u32) -> Vec<u8> {
+    let mut m = Msg::new(MEDIA_HELLO);
+    m.u32(VERSION).bytes(&token[..PROOF_BYTES]).u32(caps);
+    m.finish()
+}
+
+/// Interleaved float samples, as little-endian bytes.
+pub fn audio_capture_data(samples: &[f32]) -> Vec<u8> {
+    let mut m = Msg::new(AUDIO_CAPTURE_DATA);
+    m.buf.reserve(samples.len() * 4);
+    for s in samples {
+        m.buf.extend_from_slice(&s.to_le_bytes());
+    }
+    m.finish()
+}
+
+pub fn audio_capture_failed(hresult: i32) -> Vec<u8> {
+    let mut m = Msg::new(AUDIO_CAPTURE_FAILED);
+    m.i32(hresult);
+    m.finish()
+}
+
+/// AUDIO_PLAY_START / AUDIO_CAPTURE_START: (rate, channels) if the format is one we handle.
+pub fn parse_audio_format(payload: &[u8]) -> Option<(u32, u32)> {
+    let mut r = Reader::new(payload);
+    let (rate, channels, format) = (r.u32()?, r.u32()?, r.u32()?);
+    (format == AUDIO_F32LE && (8000..=MAX_AUDIO_RATE).contains(&rate) && (1..=MAX_AUDIO_CHANNELS).contains(&channels)).then_some((rate, channels))
+}
+
+/// Does a WELCOME/CLIP_WELCOME/MEDIA_WELCOME's proof match the second half of our token? (constant time)
 pub fn proves(token: &[u8; TOKEN_BYTES], proof: &[u8]) -> bool {
     proof.len() == PROOF_BYTES && proof.iter().zip(&token[PROOF_BYTES..]).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
 }
@@ -394,6 +441,29 @@ mod tests {
         assert!(!proves(&t, &t[..PROOF_BYTES]), "our own half must not count as the compositor's proof");
         assert!(!proves(&t, &t[PROOF_BYTES..TOKEN_BYTES - 1]), "short proof");
         assert!(!proves(&t, &[]));
+    }
+
+    #[test]
+    fn media_messages() {
+        let t = token();
+        let h = media_hello(&t, MEDIA_CAP_PLAYBACK | MEDIA_CAP_CAPTURE);
+        assert_eq!(u32::from_le_bytes(h[0..4].try_into().unwrap()), MEDIA_HELLO);
+        assert_eq!(u32::from_le_bytes(h[4..8].try_into().unwrap()) as usize, 4 + PROOF_BYTES + 4);
+        assert_eq!(&h[12..12 + PROOF_BYTES], &t[..PROOF_BYTES]);
+        assert_eq!(u32::from_le_bytes(h[12 + PROOF_BYTES..].try_into().unwrap()), 3);
+
+        let d = audio_capture_data(&[0.5, -1.0]);
+        assert_eq!(&d[4..8], &8u32.to_le_bytes());
+        assert_eq!(&d[8..12], &0.5f32.to_le_bytes());
+
+        let fmt = |rate: u32, ch: u32, f: u32| [rate.to_le_bytes(), ch.to_le_bytes(), f.to_le_bytes()].concat();
+        assert_eq!(parse_audio_format(&fmt(48000, 2, AUDIO_F32LE)), Some((48000, 2)));
+        assert_eq!(parse_audio_format(&[fmt(44100, 1, AUDIO_F32LE), vec![0; 4]].concat()), Some((44100, 1)), "trailing fields");
+        assert_eq!(parse_audio_format(&fmt(48000, 2, 2)), None, "unknown sample format");
+        assert_eq!(parse_audio_format(&fmt(48000, 0, AUDIO_F32LE)), None);
+        assert_eq!(parse_audio_format(&fmt(48000, 9, AUDIO_F32LE)), None);
+        assert_eq!(parse_audio_format(&fmt(0, 2, AUDIO_F32LE)), None);
+        assert_eq!(parse_audio_format(&fmt(48000, 2, AUDIO_F32LE)[..8]), None, "short");
     }
 
     #[test]

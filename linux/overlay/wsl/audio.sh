@@ -1,4 +1,8 @@
-# womarchy WSL leaf: PipeWire audio through WSLg's PulseAudio server.
+# womarchy WSL leaf: PipeWire audio through WSLg's PulseAudio server -- the fallback.
+# Sessions started by a current omarchy.exe get "Windows audio"/"Windows microphone"
+# from womarchy-mediad (womarchy-session), which outrank these tunnels (priority
+# 2500 vs 2000) and take over the default from them; the tunnels stay for older
+# viewers.
 # WSL has no ALSA devices; WSLg exposes PulseAudio at unix:/mnt/wslg/PulseServer
 # (RDP audio to Windows). Keep Omarchy's PipeWire + WirePlumber stack and give
 # it a pulse-tunnel sink and source to that server, so pactl/wpctl/pamixer, the

@@ -68,7 +68,10 @@ Run the installer again (`irm https://raw.githubusercontent.com/sytelus/womarchy
 
 WebGL then works, but costs 2–4 CPU cores while a 3D page animates, and windows may look softer on scaled monitors.
 
-**Microphone.** Windows' microphone reaches Linux as the `RDPSource` input (through WSLg). If apps hear nothing, check that Windows Settings → Privacy & security → Microphone allows desktop apps.
+**Sound and microphone.** Linux plays on Windows' default output device through `omarchy.exe` (PipeWire output "Windows audio"), and records Windows' default microphone ("Windows microphone"). Change devices in Windows; the desktop follows.
+- **No sound:** check that "Windows audio" is the default output (`wpctl status`; `wpctl set-default <id>`), and that `womarchy-mediad` runs (`systemctl --user status womarchy-mediad`). Its log says whether the viewer connected.
+- **Apps hear nothing:** Windows Settings → Privacy & security → Microphone must allow desktop apps. If it doesn't, `womarchy-mediad`'s log says so (`E_ACCESSDENIED`).
+- An older `omarchy.exe` has no audio channel. The session then uses WSLg's audio instead ("Windows audio (WSLg)"), which depends on WSLg's own RDP connection.
 
 **Blurry or wrongly sized desktop.** Each monitor gets the scale Windows uses for it, rounded to a scale Hyprland supports (175% becomes 166.7%). After changing Windows' display settings, the desktop follows within a second. If it doesn't, log out and start again.
 

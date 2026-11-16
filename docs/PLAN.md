@@ -23,7 +23,7 @@ Companion to [FEASIBILITY.md](FEASIBILITY.md) (read that first for the evidence)
 | M1 packages | Done. `[womarchy]` repo with aquamarine, hyprland, Mesa (two d3d12 patches: deadlock fix, WSL 3.0.1 write-combine upload fix), and `womarchy-session`. |
 | M2 Omarchy image | Done. Omarchy 4.0.4 Lite `.wsl` (1.7 GB): first-run setup, WSL leaves, user overlay. Tested by a fresh install each build. |
 | M3 viewer | Done. `omarchy.exe` full-screen/windowed; protocol v2 with mutual authentication; one presenter thread and swapchain per output; keyboard hook (Super), mouse, cursor, clipboard (text and images); exit codes; device-loss recovery. |
-| M4 polish | Mostly done. Verified: three 4K monitors with mixed DPI (150%/175%) at ~100 frames/s combined; live display changes; audio and microphone via WSLg. Cold start on 3x4K takes ~5 s (was ~17 s). Known limit: Chromium runs without GPU compositing or WebGL (no dmabuf in WSL). Open: hardware video decode paths. |
+| M4 polish | Mostly done. Verified: three 4K monitors with mixed DPI (150%/175%) at ~100 frames/s combined; live display changes; audio and microphone through the viewer (WASAPI), with WSLg as the fallback. Cold start on 3x4K takes ~5 s (was ~17 s). Known limit: Chromium runs without GPU compositing or WebGL (no dmabuf in WSL). Open: hardware video decode paths. |
 | M5 installer and updates | Done. `install.ps1` (installs or updates WSL with a clear warning); `omarchy install / uninstall / status / update / rollback / backup / restore`; GitHub releases (lite image only: the full image exceeds GitHub's 2 GB asset limit); signed `[womarchy]` repository; overlay updates through packages; CI (checks on every push, on-demand package builds with approval-gated signing, a daily snapshot watch). |
 | M6 upstreaming | In progress: the first submissions (Omarchy, Hyprland, Mesa, Microsoft) are prepared for review; see [UPSTREAMING.md](UPSTREAMING.md). |
 
@@ -70,7 +70,7 @@ Companion to [FEASIBILITY.md](FEASIBILITY.md) (read that first for the evidence)
 │       │    render to FBO → damage-only readback into frame ring   │
 │       └─ Omarchy 4 (quickshell shell, owe, foot, chromium, …)     │
 │  clients: GL/Vulkan via Mesa d3d12/dzn → wl_shm (GPU + readback)  │
-│  audio: PipeWire → pulse-tunnel → WSLg PulseServer (phase 1)      │
+│  audio: PipeWire ↔ womarchy-mediad ↔ viewer (WASAPI)              │
 │  womarchy-clipd: ext-data-control ↔ viewer                        │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -239,7 +239,7 @@ Each spike that touches the shared WSL VM is flagged ⚠ and needs the user's ap
 
 ### Phase 4 — Integration polish and performance (3–4 weeks)
 
-- **Audio:** PipeWire pulse-tunnel to WSLg PulseServer by default. Optional native path: PCM over WDP to WASAPI (lower latency, and allows running with `guiApplications=false` for this distro only).
+- **Audio:** PCM over WDP's media channel to WASAPI (`womarchy-mediad` ↔ `omarchy.exe`; done). The PipeWire pulse-tunnel to WSLg's PulseServer remains the fallback for older viewers. Next on the same channel: the Windows camera (Media Foundation → PipeWire video source).
 - **HiDPI:** fractional scales from Windows DPI, per-monitor; Xwayland zero-scaling; cursor size sync.
 - **Video:** hardware decode via VA-API on the X11 display type or NVDEC (CUDA) in mpv/Chromium; verify owe (the mpv wallpaper engine) cost.
 - **Browser/Electron GPU acceleration:** settle flags per the Phase 0 matrix; web apps (`chromium --app`) are Omarchy's backbone.

@@ -15,8 +15,10 @@ reasoning behind the design see [FEASIBILITY.md](FEASIBILITY.md); for the wire f
   ├─ reader thread  ◀──── frames, cursor, outputs ───┐   │      ├─ reads back damaged pixels into
   ├─ input sender   ────── keys, pointer, focus ────▶│   │      │  shm buffers on /mnt/wslgshm (DAX)
   ├─ keyboard hook thread (Super, Alt+Tab, ...)      │   └──────┤
-  └─ clipboard thread  ◀──── text ────▶ womarchy-clipd  hvsocket└─ aquamarine "wsl" backend (new)
-                                       (Wayland data-control)  (AF_HYPERV ↔ AF_VSOCK)
+  ├─ clipboard thread  ◀──── text ────▶ womarchy-clipd  hvsocket└─ aquamarine "wsl" backend (new)
+  │                                    (Wayland data-control)  (AF_HYPERV ↔ AF_VSOCK)
+  └─ media threads     ◀──── PCM ─────▶ womarchy-mediad (PipeWire sink "Windows audio",
+     (WASAPI)                                             source "Windows microphone")
 ```
 
 ## Components
@@ -28,7 +30,7 @@ reasoning behind the design see [FEASIBILITY.md](FEASIBILITY.md); for the wire f
 | aquamarine shm allocator | same | CPU output buffers for backends without DRM: files on WSLg's DAX share, or memfd. |
 | Hyprland patches | [patches/hyprland](../patches/hyprland) | Composite without DRM (surfaceless EGL), read damaged regions back into shm buffers, CPU cursor buffers, screen capture without dmabuf, per-output absolute pointer motion. |
 | Mesa patches | [patches/mesa](../patches/mesa) | d3d12 driver: a deadlock fix, and write-back upload heaps on WSL 3.0.1 (write-combine heaps run at ~9 MB/s there). |
-| `womarchy-session` | [linux/packages/womarchy-session](../linux/packages/womarchy-session) | The session entry point (plus `womarchy-clipd`, the DAX mount unit and the X11 socket fix). |
+| `womarchy-session` | [linux/packages/womarchy-session](../linux/packages/womarchy-session) | The session entry point (plus `womarchy-clipd`, `womarchy-mediad`, the DAX mount unit and the X11 socket fix). |
 | Omarchy overlay and image | [linux/overlay](../linux/overlay), [linux/image](../linux/image) | Builds the `.wsl` image: Arch + Omarchy 4 + `[womarchy]` packages + WSL adaptations (first-run setup, keyboard/locale from Windows, services that make no sense in WSL turned off, update hooks that keep it all applied). |
 
 ## Session lifecycle
@@ -37,7 +39,7 @@ reasoning behind the design see [FEASIBILITY.md](FEASIBILITY.md); for the wire f
    ```
    wsl.exe -d Omarchy --exec womarchy-session
    ```
-   Secrets travel in the environment via `WSLENV`, never on a command line: two random 32-byte tokens (display and clipboard), a random vsock port, and the monitor layout (`WOMARCHY_MONITORS`).
+   Secrets travel in the environment via `WSLENV`, never on a command line: three random 32-byte tokens (display, clipboard, media), a random vsock port, and the monitor layout (`WOMARCHY_MONITORS`).
 2. **Session.** `womarchy-session`:
    - takes a per-user lock (one desktop at a time);
    - registers a logind session;
@@ -46,7 +48,7 @@ reasoning behind the design see [FEASIBILITY.md](FEASIBILITY.md); for the wire f
    - runs `uwsm start hyprland.desktop` with `HYPRLAND_BACKEND=wsl`.
 
    On a freshly imported distro it instead exits with code 75 (`WOMARCHY_NEEDS_SETUP`). `omarchy.exe` then runs the first-run setup in the console (user name, password) and starts over.
-3. **Connect.** Hyprland's `wsl` backend listens on the port. `omarchy.exe` connects over hvsocket (no admin rights; works under any network mode) and sends `HELLO` with the first half of the token. The compositor answers `WELCOME` with the second half, and the viewer refuses to send anything until that proof checks out. The viewer then sends `MONITORS`. The clipboard connects the same way on the next port, to `womarchy-clipd`.
+3. **Connect.** Hyprland's `wsl` backend listens on the port. `omarchy.exe` connects over hvsocket (no admin rights; works under any network mode) and sends `HELLO` with the first half of the token. The compositor answers `WELCOME` with the second half, and the viewer refuses to send anything until that proof checks out. The viewer then sends `MONITORS`. The clipboard connects the same way on the next port, to `womarchy-clipd`, and audio on the port after that, to `womarchy-mediad`.
 4. **Run.** For each output the compositor sends:
    - `OUTPUT` (its size);
    - `FRAME` messages naming the shared-memory buffer that holds the frame and its damage rectangles (max 64; more become one bounding box);
@@ -73,6 +75,14 @@ Costs worth knowing (measured, see [WORKLOG.md](WORKLOG.md)):
 - **Mouse:** absolute positions per output, plus buttons and wheel. Hyprland maps an output's absolute motion onto that monitor (patch 0005), so the pointer moves between monitors exactly as Windows moves it between windows.
 - **Cursor:** the cursor is drawn by Windows: the compositor sends cursor images, and the viewer turns them into native cursors. It never lags behind the frames. Explicit compositor warps also reach the host through `POINTER_WARP`; ordinary motion is never echoed back. Warps use output-local physical coordinates and only move the cursor while the viewer is live and foreground and the target window is visible.
 
+## Audio
+
+`womarchy-mediad` runs in the session while the viewer is connected on the media channel. It gives PipeWire two nodes, "Windows audio" (`womarchy-sink`) and "Windows microphone" (`womarchy-source`), and makes them the defaults when the configured default was WSLg's tunnel or nothing.
+- **Playback.** What apps play is sent as float PCM (48 kHz stereo, 10 ms packets). The viewer keeps ~30 ms queued and plays it with WASAPI. To follow the sound card's clock it nudges WASAPI's sample rate by at most ±0.5 % (`IAudioClockAdjustment`), so nothing is dropped or repeated. When nothing plays, WirePlumber suspends the sink, mediad sends `AUDIO_PLAY_STOP`, and the viewer closes the device.
+- **Microphone.** The source is suspended unless an app records from it. mediad opens and closes the Windows microphone with it (`AUDIO_CAPTURE_START`/`STOP`), so Windows' "microphone in use" indicator is accurate. mediad keeps ~40 ms buffered and drops excess when the microphone's clock runs fast.
+- Volume and mute are PipeWire's (the nodes are ordinary streams), so Omarchy's volume keys and panels work unchanged.
+- With an older viewer there is no media token: mediad doesn't start, and PipeWire's tunnel to WSLg's PulseAudio (`wsl/audio.sh`) is the output, as before.
+
 ## Display changes and DPI
 
 `omarchy.exe` is per-monitor DPI aware.
@@ -90,6 +100,7 @@ Costs worth knowing (measured, see [WORKLOG.md](WORKLOG.md)):
 | Reader | Reads messages and hands each frame to its output's presenter. |
 | Presenter (one per output) | Owns its D3D11 device and swapchain (`SetMaximumFrameLatency(1)`). It uploads damage, presents, acks, and recovers from device loss by asking for a full frame (`REFRESH`). |
 | Clipboard | Connects to `womarchy-clipd` and syncs text, or images (PNG) when there is no text, both ways. It converts between PNG and Windows bitmaps with Windows' own imaging component. Content marked secret by a password manager is not sent from either side. |
+| Media | Connects to `womarchy-mediad` and follows its streams. A player thread (while Linux plays) and a recorder thread (while a Linux app records) each use WASAPI in shared mode on Windows' default device, and reopen it when the default changes. |
 | Session waiter | Waits for `wsl.exe` to exit and returns its exit code. |
 
 ## Updates, rollback and signing

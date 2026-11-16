@@ -1,15 +1,22 @@
 # womarchy: session entry point for omarchy.exe (Omarchy on WSL)
 pkgname=womarchy-session
 pkgver=0.1.0
-pkgrel=15
+pkgrel=16
 pkgdesc='Starts the Omarchy desktop session for the omarchy.exe viewer on WSL (Hyprland wsl backend)'
-arch=(any)
+arch=(x86_64)
 url='https://github.com/sytelus/womarchy'
 license=(MIT)
-depends=(bash gawk hyprland python systemd util-linux wl-clipboard)
+depends=(bash gawk hyprland libpipewire python systemd util-linux wireplumber wl-clipboard)
+makedepends=(gcc pkgconf)
 optdepends=('uwsm: start the session the way Omarchy does (recommended)')
-source=(womarchy-session womarchy-clipd womarchy-clipd.service mnt-wslgshm.mount x11-unix womarchy-x11-unix.service)
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+source=(womarchy-session womarchy-clipd womarchy-clipd.service womarchy-mediad.c womarchy-mediad.service
+        mnt-wslgshm.mount x11-unix womarchy-x11-unix.service)
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+build() {
+  # shellcheck disable=SC2046 # pkg-config prints several flags
+  gcc $CPPFLAGS $CFLAGS -Wall -Wextra -o womarchy-mediad womarchy-mediad.c $LDFLAGS $(pkg-config --cflags --libs libpipewire-0.3)
+}
 
 package() {
   install -Dm755 womarchy-session "$pkgdir/usr/bin/womarchy-session"
@@ -18,6 +25,9 @@ package() {
   # started with every graphical session; ConditionEnvironment keeps it to omarchy.exe sessions
   install -dm755 "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants"
   ln -s ../womarchy-clipd.service "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants/womarchy-clipd.service"
+  install -Dm755 womarchy-mediad "$pkgdir/usr/bin/womarchy-mediad"
+  install -Dm644 womarchy-mediad.service "$pkgdir/usr/lib/systemd/user/womarchy-mediad.service"
+  ln -s ../womarchy-mediad.service "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants/womarchy-mediad.service"
   install -Dm644 mnt-wslgshm.mount "$pkgdir/usr/lib/systemd/system/mnt-wslgshm.mount"
   # statically enabled: the unit's conditions make it a no-op without WSLg
   install -dm755 "$pkgdir/usr/lib/systemd/system/multi-user.target.wants"

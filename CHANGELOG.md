@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+**New**
+- **Audio through the viewer.** Speakers and microphone no longer go through WSLg (which could hang and stay silent). `omarchy.exe` plays Linux audio on Windows' default output device and records Windows' default microphone, via the new `womarchy-mediad` in the session (PipeWire devices "Windows audio" and "Windows microphone"). The microphone is only opened while a Linux app records. It follows changes of Windows' default devices. Needs the new viewer and `womarchy-session` 0.1.0-16; with an older viewer the session keeps using WSLg.
+
 **Fixed**
 - Keyboard workspace/focus changes across monitors now forward explicit cursor warps to Windows, instead of leaving the host cursor on the previous monitor. Requires the rebuilt Hyprland/Aquamarine packages and Windows viewer; ordinary mouse motion is unchanged.
 

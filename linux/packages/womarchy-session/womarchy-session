@@ -6,7 +6,8 @@
 # 3. starts Omarchy's session the way its display manager would (uwsm → Hyprland) with Hyprland's wsl
 #    backend selected, waits for it to end, and exits with the compositor's status
 #
-# In (from omarchy.exe via WSLENV): WOMARCHY_TOKEN, WOMARCHY_CLIP_TOKEN, WOMARCHY_VSOCK_PORT, WOMARCHY_MONITORS
+# In (from omarchy.exe via WSLENV): WOMARCHY_TOKEN, WOMARCHY_CLIP_TOKEN, WOMARCHY_VSOCK_PORT, WOMARCHY_MONITORS,
+# and from viewers with the media channel WOMARCHY_MEDIA_TOKEN (womarchy-mediad runs only when it is set)
 # Optional: WOMARCHY_TRACE=1 (backend frame trace), WOMARCHY_NO_UWSM=1 (run start-hyprland directly)
 # `womarchy-session --update-monitors`: omarchy.exe, when the Windows display layout changes mid-session
 # Logs: ~/.cache/womarchy/session.log (this script and uwsm), hyprland.log (the last compositor log)
@@ -156,6 +157,14 @@ unset DISPLAY WAYLAND_DISPLAY # WSLg's; the session runs its own
 PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '^/mnt/' | paste -sd:)
 export PATH
 export HYPRLAND_BACKEND=wsl WOMARCHY_VM_ID=$VMID WOMARCHY_TOKEN WOMARCHY_CLIP_TOKEN WOMARCHY_VSOCK_PORT WOMARCHY_MONITORS
+if [ -n "${WOMARCHY_MEDIA_TOKEN:-}" ]; then
+  export WOMARCHY_MEDIA_TOKEN
+  say "audio: through the viewer (womarchy-mediad)"
+else
+  # an older omarchy.exe; and a token left in the user manager by an older session must not start mediad
+  systemctl --user unset-environment WOMARCHY_MEDIA_TOKEN >/dev/null 2>&1
+  say "audio: through WSLg (this omarchy.exe has no media channel)"
+fi
 if [ -e /dev/dxg ]; then
   export GALLIUM_DRIVER=${GALLIUM_DRIVER:-d3d12} # Mesa picks llvmpipe on WSL unless told
 else
@@ -221,7 +230,7 @@ if [ "${WOMARCHY_NO_UWSM:-0}" != 1 ] && command -v uwsm >/dev/null; then
   # uwsm restores the manager's environment on stop; make sure our secrets never linger there (unless
   # they already belong to a newer session)
   if systemctl --user show-environment | grep -qxF "WOMARCHY_TOKEN=$WOMARCHY_TOKEN"; then
-    systemctl --user unset-environment WOMARCHY_TOKEN WOMARCHY_CLIP_TOKEN WOMARCHY_VSOCK_PORT WOMARCHY_MONITORS \
+    systemctl --user unset-environment WOMARCHY_TOKEN WOMARCHY_CLIP_TOKEN WOMARCHY_MEDIA_TOKEN WOMARCHY_VSOCK_PORT WOMARCHY_MONITORS \
       WOMARCHY_VM_ID WOMARCHY_SHM_DIR HYPRLAND_BACKEND WOMARCHY_ORPHAN_TIMEOUT >/dev/null 2>&1
   fi
 else

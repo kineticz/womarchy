@@ -61,6 +61,7 @@ windows\omarchy\target\release\omarchy.exe --distro omarchy-test --windowed 1600
 - `--session PATH` runs another session script (e.g. the repo's copy of `womarchy-session`).
 - `--input-script FILE` drives the session (keys, typing, pointer, screenshots; see `windows/omarchy/src/script.rs`).
 - `--dump-frame FILE --dump-after FRAMES` saves what the first output shows.
+- Audio without restarting the desktop: run `womarchy-mediad` by hand with a test port and token (`WOMARCHY_VSOCK_PORT=56900 WOMARCHY_MEDIA_TOKEN=<64 hex>`), then on Windows `omarchy media-test <vm id> 56900` with the same `WOMARCHY_MEDIA_TOKEN` (`WSLENV=WOMARCHY_MEDIA_TOKEN` passes it from WSL). Play to `womarchy-sink`, record from `womarchy-source`. `WOMARCHY_MEDIA_UNIX=/path` makes mediad listen on a Unix socket instead, for a fake viewer.
 
 ## Tests
 
@@ -89,7 +90,8 @@ compile command and the remaining visual checks. Package-generation regressions 
 - `wdp.h` itself (bump `WDP_VERSION` for incompatible changes);
 - its copy in the aquamarine backend (`src/backend/wsl/wdp.h`);
 - `windows/omarchy/src/wdp.rs`;
-- for the clipboard, `linux/packages/womarchy-session/womarchy-clipd`.
+- for the clipboard, `linux/packages/womarchy-session/womarchy-clipd`;
+- for audio, `linux/packages/womarchy-session/womarchy-mediad.c` and `windows/omarchy/src/media.rs`.
 
 The viewer and the compositor refuse to talk across versions, so release them together. Adding a message type doesn't need a version bump: receivers skip types they don't know (that's how `CLIP_IMAGE` was added). Clipboard-only additions can wait for the next aquamarine change to reach its copy of the header, since aquamarine doesn't use them.
 
