@@ -30,12 +30,15 @@ if (( EUID == 0 )); then
   check "pacman keyring initialised (OOBE)" pacman-key --list-keys "$OMARCHY_KEY_FPR"
   # [womarchy] signatures: the pinned womarchy key, locally trusted; signed dbs required.
   check "womarchy-keyring installed" pacman -Q womarchy-keyring
-  validity=$(gpg --homedir /etc/pacman.d/gnupg --no-permission-warning --batch --with-colons --list-keys "$WOMARCHY_KEY_FPR" 2>/dev/null |
-    awk -F: '$1 == "pub" { print $2; exit }')
-  [[ $validity == [fu] ]] && pass "womarchy key $WOMARCHY_KEY_FPR trusted in pacman's keyring" ||
-    fail "womarchy key not (fully) trusted in pacman's keyring (validity '${validity:-missing}')"
-  grep -qx "$WOMARCHY_KEY_FPR:4:" /usr/share/pacman/keyrings/womarchy-trusted &&
-    pass "womarchy-trusted is the pinned key" || fail "womarchy-trusted: $(cat /usr/share/pacman/keyrings/womarchy-trusted 2>&1)"
+  for fpr in $WOMARCHY_KEY_FPRS; do
+    validity=$(gpg --homedir /etc/pacman.d/gnupg --no-permission-warning --batch --with-colons --list-keys "$fpr" 2>/dev/null |
+      awk -F: '$1 == "pub" { print $2; exit }')
+    [[ $validity == [fu] ]] && pass "womarchy key $fpr trusted in pacman's keyring" ||
+      fail "womarchy key $fpr not (fully) trusted in pacman's keyring (validity '${validity:-missing}')"
+  done
+  listed=$(sed -e 's/#.*//' /usr/share/pacman/keyrings/womarchy-trusted 2>/dev/null | cut -d: -f1 | grep -E '^[0-9A-F]{40}$' | sort -u)
+  [[ $listed == "$(tr ' ' '\n' <<<"$WOMARCHY_KEY_FPRS" | sort -u)" ]] &&
+    pass "womarchy-trusted is the pinned key set" || fail "womarchy-trusted: $(cat /usr/share/pacman/keyrings/womarchy-trusted 2>&1)"
   sig=$(awk '/^\[womarchy\]/{f=1;next} /^\[/{f=0} f && /^SigLevel/' /etc/pacman.conf)
   [[ $sig == "SigLevel = PackageOptional DatabaseRequired" ]] && pass "[womarchy] $sig" || fail "[womarchy] ${sig:-no SigLevel}"
   check "local repo db signature valid" pacman-key --verify /var/lib/womarchy/repo/womarchy.db.sig /var/lib/womarchy/repo/womarchy.db

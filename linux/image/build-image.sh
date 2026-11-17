@@ -40,7 +40,8 @@ STAGE_REPO=$WORK/repo
 IMAGE_REPO=/var/lib/womarchy/repo   # the installed system's local [womarchy] repo (see wsl/pacman.sh)
 BUILD_DATE=$(date -u +%Y%m%d)
 
-source "$HERE/omarchy-key.env"      # OMARCHY_KEY_FPR, WOMARCHY_KEY_FPR (pinned signing keys)
+source "$HERE/omarchy-key.env"      # OMARCHY_KEY_FPR, WOMARCHY_KEY_FPRS (pinned signing keys)
+womarchy_keys=$(tr ' ' '\n' <<<"$WOMARCHY_KEY_FPRS" | grep -E '^[0-9A-F]{40}$' | sort -u)
 KEY_DIR=$REPO/linux/packages/womarchy-keyring
 ARCH_MIRROR='https://stable-mirror.omarchy.org/$repo/os/$arch'   # Omarchy's frozen Arch snapshot (stable channel)
 OMARCHY_SERVERS=('https://pkgs.omarchy.org/stable/$arch' 'https://stable-mirror.omarchy.org/$repo/os/$arch')
@@ -170,15 +171,17 @@ fi
 primaries() { gpg --show-keys --with-colons "$1" 2>/dev/null |
   awk -F: '$1 == "pub" { want = 1; next } want && $1 == "fpr" { print $10; want = 0 }' | sort -u; }
 key_trusted=$(sed -e 's/#.*//' "$KEY_DIR/womarchy-trusted" | cut -d: -f1 | grep -E '^[0-9A-F]{40}$' | sort -u || true)
-[[ $key_trusted == "$WOMARCHY_KEY_FPR" ]] || die "womarchy-trusted lists {${key_trusted//$'
-'/,}}, expected exactly $WOMARCHY_KEY_FPR"
-[[ $(primaries "$KEY_DIR/womarchy.asc") == "$WOMARCHY_KEY_FPR" ]] || die "womarchy.asc is not exactly the pinned key $WOMARCHY_KEY_FPR"
+[[ -n $womarchy_keys && $key_trusted == "$womarchy_keys" ]] || die "womarchy-trusted lists {${key_trusted//$'
+'/,}}, expected exactly {${womarchy_keys//$'\n'/,}}"
+[[ $(primaries "$KEY_DIR/womarchy.asc") == "$womarchy_keys" ]] || die "womarchy.asc is not exactly the pinned keys {${womarchy_keys//$'\n'/,}}"
 if (( ALLOW_UNSIGNED_REPO )); then
   womarchy_siglevel='Optional TrustAll'
 else
   womarchy_siglevel='PackageOptional DatabaseRequired'
   pacman-key --add "$KEY_DIR/womarchy.asc" >/dev/null 2>&1 || die "cannot add the womarchy key to the build host's keyring"
-  pacman-key --lsign-key "$WOMARCHY_KEY_FPR" >/dev/null 2>&1 || die "cannot locally sign the womarchy key"
+  for fpr in $womarchy_keys; do
+    pacman-key --lsign-key "$fpr" >/dev/null 2>&1 || die "cannot locally sign the womarchy key $fpr"
+  done
 fi
 
 # Same-named package files from earlier local builds must not shadow the published ones.
