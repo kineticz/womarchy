@@ -17,7 +17,7 @@ prompt back.
 - 🚀 **On your GPU.** Hyprland composites on your graphics card, and finished frames reach Windows through shared memory, without copies. OpenGL and Vulkan apps are GPU accelerated too.
 - ⌨️ **One command in, log out to leave.** `omarchy` from any terminal, or **Omarchy** in the Start menu.
 - 📋 **Clipboard both ways**, for text and images.
-- 🔊 **Sound and microphone**, through WSL.
+- 🔊 **Sound, microphone and camera** from Windows. If Teams finds no camera, set its site permission for the camera from "Ask" to "Allow".
 - 🛟 **Updates you can undo.** `omarchy update` runs Omarchy's own updater. A rollback point is recorded before every update, and `omarchy rollback` puts the previous versions back. womarchy's packages come from a signed repository.
 - 💾 **Whole-distro backups** with `omarchy backup` and `omarchy restore`.
 - 🧹 **Leaves Windows alone.** No custom kernel, no kernel modules, no global WSL settings. `omarchy uninstall` removes everything.
