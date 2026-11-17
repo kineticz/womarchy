@@ -53,7 +53,7 @@ if (( EUID == 0 )); then
   repo=/var/lib/womarchy/repo
   block=$(awk '/^\[womarchy\]/{f=1;next} /^\[/{f=0} f' /etc/pacman.conf)
   hosted=$(sed -n 's/^WOMARCHY_REPO_URL=//p' /etc/womarchy/config 2>/dev/null | tail -n1)
-  hosted=${hosted:-https://github.com/sytelus/womarchy/releases/download/packages}
+  hosted=${hosted:-https://github.com/kineticz/womarchy/releases/download/packages}
   [[ $(grep -m1 '^Server' <<<"$block") == "Server = $hosted" ]] &&
     grep -qx "Server = file://$repo" <<<"$block" && pass "[womarchy] servers: hosted + file://$repo" ||
     fail "[womarchy] servers: $(grep Server <<<"$block" | paste -sd' ')"

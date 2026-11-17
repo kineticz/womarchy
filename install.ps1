@@ -6,7 +6,7 @@
     Run it from PowerShell (no administrator rights needed; Windows asks for them once if WSL itself
     has to be installed or updated):
 
-        irm https://raw.githubusercontent.com/sytelus/womarchy/main/install.ps1 | iex
+        irm https://raw.githubusercontent.com/kineticz/womarchy/main/install.ps1 | iex
 
     Before changing anything it explains what it will do and asks for confirmation:
       1. WSL: installs it, or updates it to the tested version or newer, if needed. This affects all
@@ -38,9 +38,9 @@ param(
 # Native commands are checked through $LASTEXITCODE; with "Stop", Windows PowerShell 5.1 would turn any
 # stderr output of a redirected native command into a terminating error.
 $ErrorActionPreference = "Continue"
-$Release = "https://github.com/sytelus/womarchy/releases/latest/download"
+$Release = "https://github.com/kineticz/womarchy/releases/latest/download"
 $TestedWsl = [version]"3.0.1"   # the WSL version Omarchy is developed and tested on
-$Docs = "https://github.com/sytelus/womarchy/blob/main/docs/TROUBLESHOOTING.md"
+$Docs = "https://github.com/kineticz/womarchy/blob/main/docs/TROUBLESHOOTING.md"
 
 function Say($text, $color = "Gray") { Write-Host $text -ForegroundColor $color }
 function Stop-Install($text) {

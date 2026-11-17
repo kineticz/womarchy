@@ -25,7 +25,7 @@ OLD_REPO_DIR=/var/cache/womarchy-repo   # images built before 2026-10: moved out
 if [[ -z ${WOMARCHY_REPO_URL:-} && -f /etc/womarchy/config ]]; then
   WOMARCHY_REPO_URL=$(sed -n 's/^WOMARCHY_REPO_URL=//p' /etc/womarchy/config | tail -n1)
 fi
-HOSTED=${WOMARCHY_REPO_URL:-https://github.com/sytelus/womarchy/releases/download/packages}
+HOSTED=${WOMARCHY_REPO_URL:-https://github.com/kineticz/womarchy/releases/download/packages}
 [[ $HOSTED =~ ^(https://[A-Za-z0-9.-]+|file://)/[A-Za-z0-9._~/%+-]*$ ]] || { echo "womarchy (wsl/pacman.sh): invalid WOMARCHY_REPO_URL '$HOSTED'" >&2; exit 1; }
 IGNORE='IgnorePkg = linux linux-lts linux-zen linux-hardened linux-headers linux-omarchy linux-omarchy-headers linux-t2* linux-ptl* linux-firmware linux-firmware-* *-dkms'
 

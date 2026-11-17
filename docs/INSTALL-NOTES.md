@@ -116,7 +116,7 @@ What changed after the code review, in detail (the notes above are updated to ma
 - **[womarchy] repository**
   - The local copy is at `/var/lib/womarchy/repo`, not `/var/cache`, because cache cleaners would delete it.
   - It is root-owned and never group/other-writable: it is trusted (`TrustAll`) and comes first, so a writable copy would let any user plant packages that root installs.
-  - `pacman.conf` lists `Server = https://github.com/sytelus/womarchy/releases/download/packages` first, then `file:///var/lib/womarchy/repo` as the offline fallback.
+  - `pacman.conf` lists `Server = https://github.com/kineticz/womarchy/releases/download/packages` first, then `file:///var/lib/womarchy/repo` as the offline fallback.
   - `wsl/pacman.sh` repairs ownership and permissions, migrates the old `/var/cache/womarchy-repo`, and **fails loudly** rather than leave `[womarchy]` out.
   - The fallback follows the hosted repo: after every transaction the pacman hook `30-womarchy-local-repo` copies the last downloaded (signed) database and the cached package files it lists, and removes package files it no longer lists. Otherwise `omarchy refresh pacman` (`pacman -Syyuu`) with GitHub unreachable would take the image's database and downgrade Mesa, Hyprland and aquamarine.
   - **(script)** The installer must never copy the repo with modes from a Windows drive.

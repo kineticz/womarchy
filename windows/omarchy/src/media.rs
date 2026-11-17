@@ -1,4 +1,4 @@
-//! Media bridge: the session's audio devices, backed by Windows (protocol/wdp.h, "media channel").
+//! Media bridge: the session's audio devices, backed by Windows (protocol/wdp-media.h).
 //!
 //! womarchy-mediad listens on the compositor's vsock port + 2 with its own session token and the usual
 //! handshake (MEDIA_HELLO / MEDIA_WELCOME). It offers Linux apps a PipeWire sink and source while we are

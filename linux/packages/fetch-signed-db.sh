@@ -22,7 +22,7 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
-URL=${WOMARCHY_REPO_URL:-https://github.com/sytelus/womarchy/releases/download/packages}
+URL=${WOMARCHY_REPO_URL:-https://github.com/kineticz/womarchy/releases/download/packages}
 KEY_DIR=${WOMARCHY_KEY_DIR:-$HERE/womarchy-keyring}
 
 usage() {

@@ -27,7 +27,7 @@ use windows::Win32::UI::WindowsAndMessaging::{SendMessageTimeoutW, HWND_BROADCAS
 
 /// Where `omarchy install` fetches the image when no file is given and none sits next to omarchy.exe.
 /// Each release publishes Omarchy.wsl and Omarchy.wsl.sha256.
-pub const DEFAULT_IMAGE_URL: &str = "https://github.com/sytelus/womarchy/releases/latest/download/Omarchy.wsl";
+pub const DEFAULT_IMAGE_URL: &str = "https://github.com/kineticz/womarchy/releases/latest/download/Omarchy.wsl";
 /// Oldest WSL we support: the one we develop and test on. (2.5 already has the features we use, such as
 /// `wslinfo --vm-id` and `--install --from-file --name`, but its kernel and WSLg are untested.) install.ps1
 /// updates WSL to at least this version.

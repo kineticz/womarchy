@@ -62,7 +62,7 @@ export OMARCHY_MIRROR="${OMARCHY_MIRROR:-stable}"
 # --- settings: environment > /etc/womarchy/config > default ---------------------------
 CONFIG=/etc/womarchy/config
 declare -A DEFAULTS=([WOMARCHY_DOCKER]=1 [WOMARCHY_FIREWALL]=0
-                     [WOMARCHY_REPO_URL]=https://github.com/sytelus/womarchy/releases/download/packages)
+                     [WOMARCHY_REPO_URL]=https://github.com/kineticz/womarchy/releases/download/packages)
 valid_setting() { # KEY VALUE
   case $1 in
     WOMARCHY_DOCKER|WOMARCHY_FIREWALL) [[ $2 == [01] ]] ;;

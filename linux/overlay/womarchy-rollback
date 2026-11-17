@@ -9,7 +9,7 @@ DIR=/var/lib/womarchy/rollback
 CACHE=/var/cache/pacman/pkg
 LOCAL_REPO=/var/lib/womarchy/repo
 WOMARCHY_URL=$(sed -n 's/^WOMARCHY_REPO_URL=//p' /etc/womarchy/config 2>/dev/null | tail -n1)
-WOMARCHY_URL=${WOMARCHY_URL:-https://github.com/sytelus/womarchy/releases/download/packages}   # womarchy-apply-system's setting
+WOMARCHY_URL=${WOMARCHY_URL:-https://github.com/kineticz/womarchy/releases/download/packages}   # womarchy-apply-system's setting
 OMARCHY_URL=https://pkgs.omarchy.org/stable/x86_64
 ARCH_ARCHIVE=https://archive.archlinux.org/packages
 

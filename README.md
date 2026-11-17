@@ -1,13 +1,15 @@
 # Omarchy on WSL with full GUI and Graphics
 
-[![checks](https://github.com/sytelus/womarchy/actions/workflows/checks.yml/badge.svg)](https://github.com/sytelus/womarchy/actions/workflows/checks.yml)
-[![release](https://img.shields.io/github/v/release/sytelus/womarchy)](https://github.com/sytelus/womarchy/releases/latest)
-[![license](https://img.shields.io/github/license/sytelus/womarchy)](LICENSE)
+[![checks](https://github.com/kineticz/womarchy/actions/workflows/checks.yml/badge.svg)](https://github.com/kineticz/womarchy/actions/workflows/checks.yml)
+[![release](https://img.shields.io/github/v/release/kineticz/womarchy)](https://github.com/kineticz/womarchy/releases/latest)
+[![license](https://img.shields.io/github/license/kineticz/womarchy)](LICENSE)
 
 **Your [Omarchy](https://omarchy.org) desktop on Windows 11, one command away.** It runs in
 [WSL](https://learn.microsoft.com/windows/wsl/about), full screen on every monitor, on your GPU. No
 dual boot, no reboot: type `omarchy` at any Windows prompt to get the desktop, and log out to get your
 prompt back.
+
+> This is the [kineticz fork](https://github.com/kineticz/womarchy) of [sytelus/womarchy](https://github.com/sytelus/womarchy), with Windows audio, microphone and cameras through the viewer; the installer below installs this fork.
 
 ![Demo: typing omarchy in Windows Terminal opens the Omarchy desktop: fastfetch on an NVIDIA GPU, tiling windows with btop, Omarchy's menu, the theme gallery switching themes live, and OpenGL gears with a Vulkan cube running through Direct3D 12](docs/img/demo.gif)
 
@@ -31,7 +33,7 @@ prompt back.
 Open **PowerShell** (no need to run it as administrator) and paste:
 
 ```powershell
-irm https://raw.githubusercontent.com/sytelus/womarchy/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/kineticz/womarchy/main/install.ps1 | iex
 ```
 
 The installer explains what it will do and asks before changing anything. It then:
@@ -60,7 +62,7 @@ Problems? See [Troubleshooting](docs/TROUBLESHOOTING.md).
 > [!WARNING]
 > **Work in progress, and so far it "works on my machine".** It was developed and tested on one PC
 > (Windows 11, NVIDIA RTX 5070, three 4K monitors). Expect rough edges elsewhere, and please
-> [tell us](https://github.com/sytelus/womarchy/issues/new/choose) how it went.
+> [tell us](https://github.com/kineticz/womarchy/issues/new/choose) how it went.
 > - **WSL gets upgraded.** womarchy needs WSL 3.0.1 or later, so the installer updates WSL (or installs it). Your other WSL distros keep their files, but WSL restarts and anything running in it stops. Windows asks for administrator permission and may need a restart.
 > - Some Ubuntu distros then report a harmless `degraded` state; [here's the fix](docs/TROUBLESHOOTING.md#other-wsl-distros-after-the-wsl-update).
 > - womarchy adds a WSL distro named "Omarchy", a Start menu entry and the `omarchy` command for your user. Nothing else on Windows changes.
@@ -105,7 +107,7 @@ ends, the bugs and how each was found. Then see [the architecture](docs/ARCHITEC
 
 ## Contributing
 
-**Issues are the way to contribute.** [Open an issue](https://github.com/sytelus/womarchy/issues/new/choose)
+**Issues are the way to contribute.** [Open an issue](https://github.com/kineticz/womarchy/issues/new/choose)
 for bugs, ideas, or a test report from your machine (what worked is useful too). We don't accept pull
 requests directly: if you have a fix, describe it in an issue, with a link to your branch if you like.
 See [CONTRIBUTING.md](CONTRIBUTING.md). Security problems: [SECURITY.md](SECURITY.md).

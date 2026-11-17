@@ -1,4 +1,4 @@
-//! Windows cameras for the session (protocol/wdp.h, media channel, CAMERA_*).
+//! Windows cameras for the session (protocol/wdp-media.h, CAMERA_*).
 //!
 //! At connect we list the video cameras (Media Foundation's video capture devices; Windows Hello's IR
 //! camera is a different category and not among them) with the modes we can deliver: their native

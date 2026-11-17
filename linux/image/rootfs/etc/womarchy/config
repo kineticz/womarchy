@@ -15,4 +15,4 @@ WOMARCHY_FIREWALL=0
 
 # The hosted [womarchy] repository (listed first; the image's local copy in
 # /var/lib/womarchy/repo is the offline fallback). Change it for a mirror or fork.
-WOMARCHY_REPO_URL=https://github.com/sytelus/womarchy/releases/download/packages
+WOMARCHY_REPO_URL=https://github.com/kineticz/womarchy/releases/download/packages

@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-11-16)
+
+First release of the [kineticz](https://github.com/kineticz/womarchy) fork of [sytelus/womarchy](https://github.com/sytelus/womarchy): the installer, image and packages come from this fork's releases and its signed `[womarchy]` repository.
 
 **New**
 - **Audio through the viewer.** Speakers and microphone no longer go through WSLg (which could hang and stay silent). `omarchy.exe` plays Linux audio on Windows' default output device and records Windows' default microphone, via the new `womarchy-mediad` in the session (PipeWire devices "Windows audio" and "Windows microphone"). The microphone is only opened while a Linux app records. It follows changes of Windows' default devices. Needs the new viewer and `womarchy-session` 0.1.0-17; with an older viewer the session keeps using WSLg.

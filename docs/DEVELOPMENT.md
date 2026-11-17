@@ -10,6 +10,7 @@ picture.
 | [install.ps1](../install.ps1) | The one-step installer for users (WSL check/update, download, `omarchy install`). |
 | [windows/omarchy](../windows/omarchy) | `omarchy.exe` (Rust): viewer, launcher, installer. |
 | [protocol/wdp.h](../protocol/wdp.h) | The display protocol between the compositor and the viewer: the reference for both sides. |
+| [protocol/wdp-media.h](../protocol/wdp-media.h) | The media channel (audio, cameras) between `womarchy-mediad` and the viewer. |
 | [patches/](../patches/README.md) | Our patches to aquamarine, Hyprland and Mesa, plus the pinned versions. |
 | [linux/packages](../linux/packages) | PKGBUILDs for the `[womarchy]` pacman repo (same package names as Arch, so they replace Arch's), and `womarchy-session`. |
 | [linux/overlay](../linux/overlay), [linux/image](../linux/image/README.md) | The Omarchy WSL overlay and the `.wsl` image builder. |
@@ -90,8 +91,9 @@ compile command and the remaining visual checks. Package-generation regressions 
 - `wdp.h` itself (bump `WDP_VERSION` for incompatible changes);
 - its copy in the aquamarine backend (`src/backend/wsl/wdp.h`);
 - `windows/omarchy/src/wdp.rs`;
-- for the clipboard, `linux/packages/womarchy-session/womarchy-clipd`;
-- for audio, `linux/packages/womarchy-session/womarchy-mediad.c` and `windows/omarchy/src/media.rs`.
+- for the clipboard, `linux/packages/womarchy-session/womarchy-clipd`.
+
+The media channel has its own header, [protocol/wdp-media.h](../protocol/wdp-media.h), so audio and camera changes don't touch aquamarine's copy of `wdp.h` (`tools/test-hyprland-pkgbuild.py` checks that copy is identical). A change there touches `womarchy-mediad.c` and `windows/omarchy/src/{wdp,media,camera}.rs`.
 
 The viewer and the compositor refuse to talk across versions, so release them together. Adding a message type doesn't need a version bump: receivers skip types they don't know (that's how `CLIP_IMAGE` was added). Clipboard-only additions can wait for the next aquamarine change to reach its copy of the header, since aquamarine doesn't use them.
 

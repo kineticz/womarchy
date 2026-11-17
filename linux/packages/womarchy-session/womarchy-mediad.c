@@ -1,5 +1,5 @@
 /*
- * womarchy-mediad: the session's audio devices, backed by Windows through omarchy.exe (protocol/wdp.h,
+ * womarchy-mediad: the session's audio devices, backed by Windows through omarchy.exe (protocol/wdp-media.h,
  * "media channel").
  *
  * Listens on vsock port WOMARCHY_VSOCK_PORT + 2 for omarchy.exe and authenticates it with the session
@@ -53,7 +53,7 @@
 #include <spa/utils/json.h>
 #include <spa/utils/result.h>
 
-/* --- protocol (protocol/wdp.h) */
+/* --- protocol (protocol/wdp-media.h) */
 #define WDP_VERSION 2u
 #define WDP_PROOF_BYTES 16u
 #define WDP_MEDIA_PORT_OFFSET 2u

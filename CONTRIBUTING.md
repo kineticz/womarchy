@@ -5,14 +5,14 @@ GPUs and machines, ideas, and proposed fixes.
 
 ## We don't accept pull requests directly
 
-Please [open an issue](https://github.com/sytelus/womarchy/issues/new/choose) instead, even if you've
+Please [open an issue](https://github.com/kineticz/womarchy/issues/new/choose) instead, even if you've
 already written the code. Describe the problem and your change, and paste a patch or link your branch.
 The issue forms have a field for it. If the change goes in, we make it ourselves and credit you.
 Pull requests opened anyway may be closed with a pointer to this page.
 
 ## Reporting a problem
 
-[Open an issue](https://github.com/sytelus/womarchy/issues/new/choose). The bug form asks for the
+[Open an issue](https://github.com/kineticz/womarchy/issues/new/choose). The bug form asks for the
 output of `omarchy status` and the session logs; [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) says
 where they are. Remove anything private before posting. Security problems: see [SECURITY.md](SECURITY.md).
 

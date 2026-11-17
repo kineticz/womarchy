@@ -3,14 +3,14 @@
 ## Reporting a vulnerability
 
 Please report security problems **privately**:
-[open a private security advisory](https://github.com/sytelus/womarchy/security/advisories/new). Don't use
+[open a private security advisory](https://github.com/kineticz/womarchy/security/advisories/new). Don't use
 public issues for them. You'll get an answer as soon as a maintainer can look at it. This is a small
 volunteer project.
 
 ## Supported versions
 
 Only the latest release gets fixes. Installed systems receive fixed packages through `omarchy update`
-from the [`[womarchy]` package repository](https://github.com/sytelus/womarchy/releases/tag/packages).
+from the [`[womarchy]` package repository](https://github.com/kineticz/womarchy/releases/tag/packages).
 
 ## What protects an installation
 

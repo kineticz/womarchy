@@ -19,7 +19,7 @@ To get a shell in the distro: `wsl -d Omarchy`.
 ## Installing
 
 **"WSL is not installed" or "too old".**
-Run the installer again (`irm https://raw.githubusercontent.com/sytelus/womarchy/main/install.ps1 | iex`). It installs or updates WSL and asks for administrator permission once. By hand, in an administrator terminal:
+Run the installer again (`irm https://raw.githubusercontent.com/kineticz/womarchy/main/install.ps1 | iex`). It installs or updates WSL and asks for administrator permission once. By hand, in an administrator terminal:
 - `wsl --install --no-distribution`, then restart Windows;
 - or `wsl --update`.
 
@@ -94,7 +94,7 @@ WebGL then works, but costs 2–4 CPU cores while a 3D page animates, and window
 
 **Old packages:** rollback looks for them in pacman's cache first. If they aren't there, it asks before downloading them from the Arch and womarchy archives.
 
-**An update stops with "breaks dependency … required by hyprland" (or aquamarine), or with a womarchy message about Mesa and LLVM.** Omarchy's package snapshot moved ahead of womarchy's own builds of Hyprland, aquamarine or Mesa. Nothing was changed: the update stopped before installing anything. womarchy's automatic check notices this within a day and opens a [rebuild-needed issue](https://github.com/sytelus/womarchy/issues?q=label%3Arebuild-needed). Once the rebuilt packages are published, run the update again.
+**An update stops with "breaks dependency … required by hyprland" (or aquamarine), or with a womarchy message about Mesa and LLVM.** Omarchy's package snapshot moved ahead of womarchy's own builds of Hyprland, aquamarine or Mesa. Nothing was changed: the update stopped before installing anything. womarchy's automatic check notices this within a day and opens a [rebuild-needed issue](https://github.com/kineticz/womarchy/issues?q=label%3Arebuild-needed). Once the rebuilt packages are published, run the update again.
 
 **"Linux kernel has been updated. Reboot?" at the end of an update.** Answer **no**. WSL uses Microsoft's kernel, so there is nothing to reboot into; "yes" only stops the distro.
 
@@ -130,7 +130,7 @@ WSL itself and your other distros stay. If `omarchy` is already gone:
 
 ## Reporting a problem
 
-Open an issue at https://github.com/sytelus/womarchy/issues. Include:
+Open an issue at https://github.com/kineticz/womarchy/issues. Include:
 - the output of `omarchy status`;
 - the last lines of `~/.cache/womarchy/session.log` and `hyprland.log`.
 

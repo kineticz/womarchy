@@ -2,7 +2,7 @@
 
 How `omarchy` on Windows turns into a GPU-composited Hyprland desktop running in WSL, and back. For the
 reasoning behind the design see [FEASIBILITY.md](FEASIBILITY.md); for the wire format see
-[protocol/wdp.h](../protocol/wdp.h).
+[protocol/wdp.h](../protocol/wdp.h) and, for audio and cameras, [protocol/wdp-media.h](../protocol/wdp-media.h).
 
 ```
  Windows                                              WSL 2 VM (the "Omarchy" distro)
