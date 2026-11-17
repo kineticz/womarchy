@@ -112,7 +112,7 @@ log "Staging the [womarchy] repo"
 if (( ALLOW_UNSIGNED_REPO )); then
   echo "warning: ALLOW_UNSIGNED_REPO=1: [womarchy] signatures are not checked (lab image, never a release)" >&2
 else
-  "$REPO/linux/packages/fetch-signed-db.sh" --verify-only "$OUT/repo" ||
+  bash "$REPO/linux/packages/fetch-signed-db.sh" --verify-only "$OUT/repo" ||
     die "$OUT/repo is not a validly signed womarchy repo (see linux/packages/fetch-signed-db.sh)"
 fi
 # -L: real files for repo-add's womarchy.db -> womarchy.db.tar.gz links;
