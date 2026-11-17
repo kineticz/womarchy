@@ -288,8 +288,8 @@ pub fn parse_camera_start(payload: &[u8]) -> Option<(u32, CameraMode)> {
     let ok = format == CAMERA_NV12
         && (2..=MAX_CAMERA_WIDTH).contains(&mode.width)
         && (2..=MAX_CAMERA_HEIGHT).contains(&mode.height)
-        && mode.width % 2 == 0
-        && mode.height % 2 == 0
+        && mode.width.is_multiple_of(2)
+        && mode.height.is_multiple_of(2)
         && mode.fps_num > 0
         && mode.fps_den > 0;
     ok.then_some((id, mode))

@@ -89,7 +89,7 @@ unsafe fn native_types(reader: &IMFSourceReader) -> Vec<(CameraMode, GUID, IMFMe
 
 fn deliverable(m: &CameraMode) -> bool {
     let fps = m.fps_num as f64 / m.fps_den.max(1) as f64;
-    m.width <= wdp::MAX_CAMERA_WIDTH && m.height <= wdp::MAX_CAMERA_HEIGHT && m.width % 2 == 0 && m.height % 2 == 0 && m.width >= 160 && (MIN_FPS..=MAX_FPS).contains(&fps)
+    m.width <= wdp::MAX_CAMERA_WIDTH && m.height <= wdp::MAX_CAMERA_HEIGHT && m.width.is_multiple_of(2) && m.height.is_multiple_of(2) && m.width >= 160 && (MIN_FPS..=MAX_FPS).contains(&fps)
 }
 
 /// Windows' video cameras and the modes each can deliver (largest first, 720p first if there is one:
