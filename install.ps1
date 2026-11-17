@@ -180,7 +180,13 @@ try {
     if ($Image) { $installArgs += $Image }
     if ($Distro -ne "Omarchy") { $installArgs += @("--distro", $Distro) }
     if ($NoLauncher) { $installArgs += "--no-launcher" }
-    & (Join-Path $work "omarchy.exe") @installArgs
+    # A program Windows refuses to start (antivirus, application control) throws instead of setting
+    # $LASTEXITCODE, which would still hold an earlier command's 0.
+    try {
+        & (Join-Path $work "omarchy.exe") @installArgs
+    } catch {
+        Stop-Install "Windows did not let omarchy.exe run: $($_.Exception.Message)"
+    }
     if ($LASTEXITCODE -ne 0) { Stop-Install "omarchy install failed (exit code $LASTEXITCODE)." }
 } finally {
     Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 (2026-11-16)
+## 0.3.0 (2026-11-17)
 
 First release of the [kineticz](https://github.com/kineticz/womarchy) fork of [sytelus/womarchy](https://github.com/sytelus/womarchy): the installer, image and packages come from this fork's releases and its signed `[womarchy]` repository.
 
