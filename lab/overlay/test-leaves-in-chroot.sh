@@ -95,3 +95,20 @@ printf '%s\n' '# Managed by womarchy (wsl/gpu.sh).' 'export GSK_RENDERER="${GSK_
 h=/usr/share/libalpm/hooks/20-womarchy-gpu-env.hook
 eval "$(sed -n 's/^Exec = //p' $h)" >/dev/null 2>&1
 t "compat upgrade hook rewrites the login-shell GPU env" bash -c "grep -q 'GSK_RENDERER:-gl}' /etc/profile.d/womarchy-gpu.sh && ! grep -q ngl /etc/profile.d/womarchy-gpu.sh"
+
+echo "== Ghostty on llvmpipe (gpu.sh)"
+gl=/usr/lib/womarchy/ghostty-gl
+mkdir -p /tmp/gh; printf '#!/bin/sh\n' >/tmp/gh/ghostty; chmod +x /tmp/gh/ghostty
+gh() { WOMARCHY_GHOSTTY_BIN=/tmp/gh/ghostty WOMARCHY_GHOSTTY_LINK=/tmp/gh/bin/ghostty "$@" bash $W/gpu.sh; }
+rm -rf /tmp/gh/bin; gh >/dev/null 2>&1
+t "Ghostty installed: link to ghostty-gl" test "$(readlink /tmp/gh/bin/ghostty)" == $gl
+gh >/dev/null 2>&1
+t "idempotent" test "$(readlink /tmp/gh/bin/ghostty)" == $gl
+WOMARCHY_GHOSTTY_BIN=/nonexistent WOMARCHY_GHOSTTY_LINK=/tmp/gh/bin/ghostty bash $W/gpu.sh >/dev/null 2>&1
+t "Ghostty removed: link removed" test ! -L /tmp/gh/bin/ghostty
+printf '#!/bin/sh\n' >/tmp/gh/bin/ghostty
+gh >/dev/null 2>&1
+t "admin's own /usr/local/bin/ghostty kept" test ! -L /tmp/gh/bin/ghostty
+WOMARCHY_GHOSTTY_BIN=/nonexistent WOMARCHY_GHOSTTY_LINK=/tmp/gh/bin/ghostty bash $W/gpu.sh >/dev/null 2>&1
+t "...also when Ghostty is removed" test -f /tmp/gh/bin/ghostty
+t "hook fires on usr/bin/ghostty" grep -qx 'Target = usr/bin/ghostty' /usr/share/libalpm/hooks/20-womarchy-gpu-env.hook

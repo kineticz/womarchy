@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+**Fixed**
+- **Ghostty opens again.** Ghostty needs OpenGL 4.3, but the WSL GPU driver (Mesa d3d12) offers 4.1, so Ghostty could not create its GL context and opened no window. It now renders on Mesa's software driver (llvmpipe); other apps stay on the GPU. `/usr/local/bin/ghostty` points to womarchy's wrapper while Ghostty is installed, so the terminal key, the app launcher and Ghostty's background service all use it (womarchy-compat 0.4.9). An admin's own `/usr/local/bin/ghostty` is left alone.
+
 ## 0.3.0 (2026-11-17)
 
 First release of the [kineticz](https://github.com/kineticz/womarchy) fork of [sytelus/womarchy](https://github.com/sytelus/womarchy): the installer, image and packages come from this fork's releases and its signed `[womarchy]` repository.

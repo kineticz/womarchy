@@ -18,7 +18,7 @@
 # linux/overlay into womarchy-overlay.tar.gz next to this PKGBUILD.
 
 pkgname=womarchy-compat
-pkgver=0.4.8
+pkgver=0.4.9
 pkgrel=1
 pkgdesc='Omarchy on WSL: bootloader/snapshot stand-ins and the womarchy WSL overlay'
 arch=(any)
@@ -57,6 +57,8 @@ package() {
   install -Dm755 "$o/bin/nm-online" "$pkgdir/usr/lib/womarchy/bin/nm-online"
   # GALLIUM_DRIVER=d3d12 for the user manager only when /dev/dxg exists
   install -Dm755 "$o/systemd/60-womarchy-gpu" "$pkgdir/usr/lib/systemd/user-environment-generators/60-womarchy-gpu"
+  # Ghostty on llvmpipe (needs GL 4.3, d3d12 has 4.1); wsl/gpu.sh links /usr/local/bin/ghostty to it
+  install -Dm755 "$o/ghostty-gl" "$pkgdir/usr/lib/womarchy/ghostty-gl"
 
   install -d "$pkgdir/usr/lib/womarchy/wsl"
   install -m644 "$o"/wsl/*.sh "$pkgdir/usr/lib/womarchy/wsl/"

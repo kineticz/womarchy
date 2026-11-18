@@ -9,6 +9,9 @@
 #    (shipped by womarchy-compat);
 #  - login shells: /etc/profile.d/womarchy-gpu.sh (written here).
 # MESA_D3D12_DEFAULT_ADAPTER_NAME is deliberately left unset (first adapter).
+# Ghostty needs OpenGL 4.3, more than d3d12 offers (4.1): /usr/local/bin/ghostty
+# links to /usr/lib/womarchy/ghostty-gl (llvmpipe) while Ghostty is installed.
+# The pacman hook 20-womarchy-gpu-env reruns this when Ghostty changes.
 set -euo pipefail
 
 # Earlier images set it unconditionally through environment.d.
@@ -27,3 +30,19 @@ fi
 export GSK_RENDERER="${GSK_RENDERER:-gl}"
 CONF
 chmod 0644 /etc/profile.d/womarchy-gpu.sh
+
+# Ghostty. An admin's own /usr/local/bin/ghostty (not our link) is left alone.
+# WOMARCHY_GHOSTTY_BIN / WOMARCHY_GHOSTTY_LINK override the paths (tests).
+ghostty_bin=${WOMARCHY_GHOSTTY_BIN:-/usr/bin/ghostty}
+ghostty_link=${WOMARCHY_GHOSTTY_LINK:-/usr/local/bin/ghostty}
+ghostty_gl=/usr/lib/womarchy/ghostty-gl
+if [[ -x $ghostty_bin && -x $ghostty_gl ]]; then
+  if [[ ! -e $ghostty_link && ! -L $ghostty_link ]]; then
+    mkdir -p "${ghostty_link%/*}"
+    ln -s "$ghostty_gl" "$ghostty_link"
+  elif [[ $(readlink "$ghostty_link") != "$ghostty_gl" ]]; then
+    echo "note: $ghostty_link is not womarchy's; Ghostty may not start on the d3d12 GPU path" >&2
+  fi
+elif [[ -L $ghostty_link && $(readlink "$ghostty_link") == "$ghostty_gl" ]]; then
+  rm -f "$ghostty_link"
+fi

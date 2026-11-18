@@ -1,10 +1,18 @@
 # womarchy: rewrite /etc/profile.d/womarchy-gpu.sh when womarchy-compat changes. The image writes it
 # (wsl/gpu.sh) and `omarchy update` reasserts it, but a plain `pacman -U` of the package does not.
+# Also when Ghostty comes or goes: gpu.sh keeps /usr/local/bin/ghostty -> ghostty-gl (llvmpipe).
 [Trigger]
 Type = Package
 Operation = Install
 Operation = Upgrade
 Target = womarchy-compat
+
+[Trigger]
+Type = Path
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Target = usr/bin/ghostty
 
 [Action]
 Description = Updating the womarchy GPU environment for login shells...

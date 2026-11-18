@@ -1,0 +1,19 @@
+#!/bin/sh
+# womarchy: start Ghostty on an OpenGL it can use.
+#
+# Ghostty needs OpenGL 4.3; Mesa's d3d12 driver (the WSL GPU path) offers 4.1, so
+# under GALLIUM_DRIVER=d3d12 Ghostty fails to create its GL context and opens no
+# window. Run it on llvmpipe (software, GL 4.6) instead. The vgem zero-copy path's
+# MESA_LOADER_DRIVER_OVERRIDE=kms_swrast must go too: llvmpipe would allocate dumb
+# buffers on vgem, is refused, and crashes; without it Ghostty presents via shm.
+#
+# wsl/gpu.sh links /usr/local/bin/ghostty here while Ghostty is installed, so the
+# shell, xdg-terminal-exec and Ghostty's D-Bus/systemd service all start it this way.
+# WOMARCHY_GHOSTTY_BIN overrides the real binary (tests).
+if [ "${GALLIUM_DRIVER-}" = d3d12 ]; then
+  export GALLIUM_DRIVER=llvmpipe
+  if [ "${MESA_LOADER_DRIVER_OVERRIDE-}" = kms_swrast ]; then
+    unset MESA_LOADER_DRIVER_OVERRIDE
+  fi
+fi
+exec "${WOMARCHY_GHOSTTY_BIN:-/usr/bin/ghostty}" "$@"
