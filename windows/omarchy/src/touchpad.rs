@@ -192,8 +192,8 @@ impl Scroll {
 
     fn stops(&mut self) -> Vec<Axis> {
         let mut out = Vec::new();
-        for axis in 0..2 {
-            if std::mem::take(&mut self.scrolled[axis]) {
+        for (axis, scrolled) in self.scrolled.iter_mut().enumerate() {
+            if std::mem::take(scrolled) {
                 out.push(Axis { axis: axis as u32, delta: 0.0, discrete120: 0, source: wdp::AXIS_SOURCE_FINGER });
             }
         }
