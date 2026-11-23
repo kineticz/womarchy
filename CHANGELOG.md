@@ -2,7 +2,12 @@
 
 ## Unreleased
 
+**New**
+- **Touchpad swipes.** On a precision touchpad, three- (or four-) finger swipes reach Hyprland as touchpad gestures, so `hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })` switches workspaces. Set Windows' three-finger gestures to "Nothing" (Settings > Bluetooth & devices > Touchpad), or Windows acts on them as well. Needs the new viewer and aquamarine 0.15.1-1.12.
+
 **Fixed**
+- **Touchpad scrolling no longer jumps back.** Windows sends touchpad scrolling as tiny wheel steps; Hyprland's discrete-scroll emulation turned each step, including the backward jitter at the end of a scroll, into a whole wheel click. The viewer now sends it as touchpad (finger) scrolling while fingers are on the pad (speed: `input:touchpad:scroll_factor`), then an axis stop so apps scroll on kinetically as on Linux; Windows' own inertia is dropped. Without a precision touchpad, wheel steps smaller than a click are sent as smooth scrolling. Needs the new viewer; aquamarine 0.15.1-1.12 for the touchpad source.
+- **Evolution and other WebKitGTK apps open again.** The session lets audio clients discover the default PipeWire socket instead of setting `PULSE_SERVER` to an explicit Unix address that crashes WebKitGTK 2.54.1 during sandbox setup.
 - **Ghostty opens again.** Ghostty needs OpenGL 4.3, but the WSL GPU driver (Mesa d3d12) offers 4.1, so Ghostty could not create its GL context and opened no window. It now renders on Mesa's software driver (llvmpipe); other apps stay on the GPU. `/usr/local/bin/ghostty` points to womarchy's wrapper while Ghostty is installed, so the terminal key, the app launcher and Ghostty's background service all use it (womarchy-compat 0.4.9). An admin's own `/usr/local/bin/ghostty` is left alone.
 
 ## 0.3.0 (2026-11-17)

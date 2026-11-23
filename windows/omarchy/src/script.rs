@@ -284,7 +284,7 @@ pub fn run(opts: Options, output_id: u32) {
             }
             "scroll" => {
                 let n: i32 = arg.parse().unwrap_or(1);
-                send(wdp::pointer_axis(now_ms(), 0, 15.0 * n as f64, 120 * n));
+                send(wdp::pointer_axis(now_ms(), 0, 15.0 * n as f64, 120 * n, wdp::AXIS_SOURCE_WHEEL));
             }
             "shot" => screenshot(&t, arg),
             "mark" => {

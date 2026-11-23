@@ -27,6 +27,9 @@ pub const POINTER_BUTTON: u32 = 13;
 pub const POINTER_AXIS: u32 = 14;
 pub const POINTER_FRAME: u32 = 15;
 pub const FOCUS: u32 = 16;
+pub const SWIPE_BEGIN: u32 = 17;
+pub const SWIPE_UPDATE: u32 = 18;
+pub const SWIPE_END: u32 = 19;
 pub const QUIT: u32 = 20;
 
 // compositor -> viewer
@@ -72,6 +75,10 @@ pub const AUDIO_F32LE: u32 = 1;
 pub const MAX_AUDIO_DATA: usize = 1 << 20;
 pub const MAX_AUDIO_RATE: u32 = 384_000;
 pub const MAX_AUDIO_CHANNELS: u32 = 8;
+
+pub const AXIS_SOURCE_WHEEL: u32 = 0;
+pub const AXIS_SOURCE_FINGER: u32 = 1;
+pub const AXIS_SOURCE_CONTINUOUS: u32 = 2;
 
 pub const TRANSPORT_INLINE: u32 = 1;
 pub const TRANSPORT_SECTION: u32 = 2;
@@ -193,12 +200,32 @@ pub fn pointer_button(time_ms: u32, button: u32, pressed: bool) -> Vec<u8> {
     out
 }
 
-pub fn pointer_axis(time_ms: u32, axis: u32, delta: f64, discrete120: i32) -> Vec<u8> {
+/// `source` is appended to the original struct: older compositors ignore it and pick WHEEL when
+/// `discrete120` is not 0, else CONTINUOUS (so non-wheel sources send `discrete120` 0).
+pub fn pointer_axis(time_ms: u32, axis: u32, delta: f64, discrete120: i32, source: u32) -> Vec<u8> {
     let mut m = Msg::new(POINTER_AXIS);
-    m.u32(time_ms).u32(axis).f64(delta).i32(discrete120);
+    m.u32(time_ms).u32(axis).f64(delta).i32(discrete120).u32(source);
     let mut out = m.finish();
     out.extend_from_slice(&pointer_frame());
     out
+}
+
+pub fn swipe_begin(time_ms: u32, fingers: u32) -> Vec<u8> {
+    let mut m = Msg::new(SWIPE_BEGIN);
+    m.u32(time_ms).u32(fingers);
+    m.finish()
+}
+
+pub fn swipe_update(time_ms: u32, fingers: u32, dx: f64, dy: f64) -> Vec<u8> {
+    let mut m = Msg::new(SWIPE_UPDATE);
+    m.u32(time_ms).u32(fingers).f64(dx).f64(dy);
+    m.finish()
+}
+
+pub fn swipe_end(time_ms: u32, cancelled: bool) -> Vec<u8> {
+    let mut m = Msg::new(SWIPE_END);
+    m.u32(time_ms).u32(cancelled as u32);
+    m.finish()
 }
 
 pub fn pointer_frame() -> Vec<u8> {
@@ -464,6 +491,20 @@ mod tests {
 
     fn parse(payload: &[u8]) -> Option<Frame> {
         parse_frame(&mut Reader::new(payload))
+    }
+
+    #[test]
+    fn touchpad_messages_match_wdp_h() {
+        // header (8) + wdp_pointer_axis (24 with source) + POINTER_FRAME header (8)
+        let axis = pointer_axis(1, 0, -2.5, 0, AXIS_SOURCE_FINGER);
+        assert_eq!(axis.len(), 8 + 24 + 8);
+        assert_eq!(&axis[0..8], &[POINTER_AXIS as u8, 0, 0, 0, 24, 0, 0, 0]);
+        assert_eq!(&axis[28..32], &AXIS_SOURCE_FINGER.to_le_bytes());
+        assert_eq!(swipe_begin(1, 3).len(), 8 + 8);
+        assert_eq!(swipe_update(1, 3, 1.0, 2.0).len(), 8 + 24);
+        let end = swipe_end(1, true);
+        assert_eq!(end.len(), 8 + 8);
+        assert_eq!(&end[12..16], &1u32.to_le_bytes());
     }
 
     #[test]

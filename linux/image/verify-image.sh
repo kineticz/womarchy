@@ -169,9 +169,16 @@ else
   # Audio: straight to WSLg, and through PipeWire's tunnel.
   srv=$(PULSE_SERVER=unix:/mnt/wslg/PulseServer pactl info 2>/dev/null | sed -n 's/^Server Name: //p')
   [[ -n $srv ]] && pass "pactl -> WSLg PulseServer: $srv" || fail "pactl cannot reach /mnt/wslg/PulseServer"
-  export PULSE_SERVER="unix:$XDG_RUNTIME_DIR/pulse/native"
-  pw=$(pactl info 2>/dev/null | sed -n 's/^Server Name: //p')
-  [[ $pw == *PipeWire* ]] && pass "pactl -> pipewire-pulse: $pw" || fail "pipewire-pulse not reachable (${pw:-no answer})"
+  # Simulate the value inherited from WSL and source the actual session overlay.
+  export PULSE_SERVER=unix:/mnt/wslg/PulseServer
+  . ~/.config/uwsm/env.d/10-womarchy
+  [[ ! -v PULSE_SERVER ]] && pass "session leaves PULSE_SERVER unset for WebKitGTK" ||
+    fail "session still sets PULSE_SERVER"
+  pi=$(pactl info 2>/dev/null)
+  pw=$(sed -n 's/^Server Name: //p' <<<"$pi")
+  ps=$(sed -n 's/^Server String: //p' <<<"$pi")
+  [[ $pw == *PipeWire* && $ps == "$XDG_RUNTIME_DIR/pulse/native" ]] &&
+    pass "pactl -> default pipewire-pulse socket: $pw" || fail "unexpected PulseAudio server (${ps:-no answer}: $pw)"
   for i in $(seq 1 10); do pactl list short sinks 2>/dev/null | grep -q wslg-sink && break; sleep 1; done
   if pactl list short sinks 2>/dev/null | grep -q wslg-sink; then
     pass "PipeWire tunnel sink to WSLg: $(pactl list short sinks | grep wslg-sink | awk '{print $2, $NF}'); default=$(pactl get-default-sink)"

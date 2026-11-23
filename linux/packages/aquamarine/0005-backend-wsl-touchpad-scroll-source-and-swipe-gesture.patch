@@ -1,0 +1,154 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kaiyin Zhong <kaiyin@zhong.science>
+Date: Mon, 23 Nov 2026 11:10:50 +0100
+Subject: [PATCH 5/5] backend: wsl touchpad scroll source and swipe gestures
+
+The viewer now tells finger (touchpad) scrolling apart from wheel clicks,
+in a field appended to wdp_pointer_axis (older viewers: unchanged), and
+forwards 3+ finger touchpad swipes as WDP_SWIPE_BEGIN/UPDATE/END, which
+become the pointer's swipe events. A running swipe is cancelled when the
+viewer loses focus or disconnects.
+---
+ include/aquamarine/backend/Wsl.hpp |  1 +
+ src/backend/Wsl.cpp                | 46 ++++++++++++++++++++++++++++--
+ src/backend/wsl/wdp.h              | 28 ++++++++++++++++++
+ 3 files changed, 72 insertions(+), 3 deletions(-)
+
+diff --git a/include/aquamarine/backend/Wsl.hpp b/include/aquamarine/backend/Wsl.hpp
+index e2758f4..ae70364 100644
+--- a/include/aquamarine/backend/Wsl.hpp
++++ b/include/aquamarine/backend/Wsl.hpp
+@@ -193,6 +193,7 @@ namespace Aquamarine {
+         std::vector<STimer>                                           timers;
+ 
+         std::set<uint32_t>                                            pressedKeys, pressedButtons;
++        bool                                                          swipeActive = false; // a touchpad swipe is in progress
+ 
+         // the cursor the viewer currently shows (to send only changes)
+         struct {
+diff --git a/src/backend/Wsl.cpp b/src/backend/Wsl.cpp
+index a6b4569..4fc7e2a 100644
+--- a/src/backend/Wsl.cpp
++++ b/src/backend/Wsl.cpp
+@@ -9,6 +9,7 @@
+ #include <charconv>
+ #include <cmath>
+ #include <csignal>
++#include <cstddef>
+ #include <cstring>
+ #include <ctime>
+ #include <fcntl.h>
+@@ -769,18 +770,55 @@ void Aquamarine::CWslBackend::handleMessage(uint32_t type, const uint8_t* data,
+             break;
+         }
+         case WDP_POINTER_AXIS: {
++            // older viewers send the struct without its trailing `source`
+             wdp_pointer_axis a{};
+-            if (!readStruct(a, data, size) || !pointer || !std::isfinite(a.delta))
++            if (size < offsetof(wdp_pointer_axis, source) || !pointer)
+                 break;
++            memcpy(&a, data, std::min<size_t>(size, sizeof(a)));
++            if (!std::isfinite(a.delta))
++                break;
++            const bool HASSOURCE = size >= sizeof(a);
++            auto       source    = a.discrete120 ? IPointer::AQ_POINTER_AXIS_SOURCE_WHEEL : IPointer::AQ_POINTER_AXIS_SOURCE_CONTINUOUS;
++            if (HASSOURCE && a.source == WDP_AXIS_SOURCE_FINGER)
++                source = IPointer::AQ_POINTER_AXIS_SOURCE_FINGER;
++            else if (HASSOURCE && a.source == WDP_AXIS_SOURCE_CONTINUOUS)
++                source = IPointer::AQ_POINTER_AXIS_SOURCE_CONTINUOUS;
++            else if (HASSOURCE && a.source == WDP_AXIS_SOURCE_WHEEL)
++                source = IPointer::AQ_POINTER_AXIS_SOURCE_WHEEL;
+             pointer->events.axis.emit(IPointer::SAxisEvent{
+                 .timeMs   = nowMs(),
+                 .axis     = a.axis == 1 ? IPointer::AQ_POINTER_AXIS_HORIZONTAL : IPointer::AQ_POINTER_AXIS_VERTICAL,
+-                .source   = a.discrete120 ? IPointer::AQ_POINTER_AXIS_SOURCE_WHEEL : IPointer::AQ_POINTER_AXIS_SOURCE_CONTINUOUS,
++                .source   = source,
+                 .delta    = a.delta,
+-                .discrete = (double)a.discrete120,
++                .discrete = source == IPointer::AQ_POINTER_AXIS_SOURCE_WHEEL ? (double)a.discrete120 : 0.0,
+             });
+             break;
+         }
++        case WDP_SWIPE_BEGIN: {
++            wdp_swipe_begin b{};
++            if (!readStruct(b, data, size) || !pointer || b.fingers < 2 || b.fingers > 10)
++                break;
++            if (swipeActive)
++                pointer->events.swipeEnd.emit(IPointer::SSwipeEndEvent{.timeMs = nowMs(), .cancelled = true});
++            swipeActive = true;
++            pointer->events.swipeBegin.emit(IPointer::SSwipeBeginEvent{.timeMs = nowMs(), .fingers = b.fingers});
++            break;
++        }
++        case WDP_SWIPE_UPDATE: {
++            wdp_swipe_update u{};
++            if (!readStruct(u, data, size) || !pointer || !swipeActive || !std::isfinite(u.dx) || !std::isfinite(u.dy))
++                break;
++            pointer->events.swipeUpdate.emit(IPointer::SSwipeUpdateEvent{.timeMs = nowMs(), .fingers = u.fingers, .delta = {u.dx, u.dy}});
++            break;
++        }
++        case WDP_SWIPE_END: {
++            wdp_swipe_end e{};
++            if (!readStruct(e, data, size) || !pointer || !swipeActive)
++                break;
++            swipeActive = false;
++            pointer->events.swipeEnd.emit(IPointer::SSwipeEndEvent{.timeMs = nowMs(), .cancelled = !!e.cancelled});
++            break;
++        }
+         case WDP_POINTER_FRAME:
+             if (pointer)
+                 pointer->events.frame.emit();
+@@ -806,6 +844,8 @@ void Aquamarine::CWslBackend::releaseAllInput() {
+         for (auto const& k : KEYS)
+             keyboard->events.key.emit(IKeyboard::SKeyEvent{.timeMs = nowMs(), .key = k, .pressed = false});
+     }
++    if (pointer && std::exchange(swipeActive, false))
++        pointer->events.swipeEnd.emit(IPointer::SSwipeEndEvent{.timeMs = nowMs(), .cancelled = true});
+     if (pointer && !BUTTONS.empty()) {
+         for (auto const& b : BUTTONS)
+             pointer->events.button.emit(IPointer::SButtonEvent{.timeMs = nowMs(), .button = b, .pressed = false});
+diff --git a/src/backend/wsl/wdp.h b/src/backend/wsl/wdp.h
+index 3266a8e..6c531f6 100644
+--- a/src/backend/wsl/wdp.h
++++ b/src/backend/wsl/wdp.h
+@@ -67,6 +67,9 @@
+ #define WDP_POINTER_AXIS   14u /* wdp_pointer_axis */
+ #define WDP_POINTER_FRAME  15u /* no payload: groups the preceding pointer events */
+ #define WDP_FOCUS          16u /* wdp_focus: the viewer gained/lost keyboard focus */
++#define WDP_SWIPE_BEGIN    17u /* wdp_swipe_begin: a touchpad swipe with 3+ fingers started */
++#define WDP_SWIPE_UPDATE   18u /* wdp_swipe_update */
++#define WDP_SWIPE_END      19u /* wdp_swipe_end */
+ #define WDP_QUIT           20u /* wdp_quit: the user closed the viewer; end the session */
+ 
+ /* message types: compositor -> viewer */
+@@ -161,6 +164,31 @@ struct wdp_pointer_axis {
+     uint32_t axis;        /* 0 = vertical, 1 = horizontal */
+     double   delta;       /* logical scroll distance (positive = down/right) */
+     int32_t  discrete120; /* wheel clicks * 120 (WHEEL_DELTA units), 0 for smooth scrolling */
++    uint32_t source;      /* WDP_AXIS_SOURCE_*; appended later: when missing, WHEEL if discrete120 != 0,
++                             else CONTINUOUS. FINGER with delta 0 means the fingers left the touchpad. */
++};
++
++#define WDP_AXIS_SOURCE_WHEEL      0u
++#define WDP_AXIS_SOURCE_FINGER     1u /* touchpad scrolling while fingers are on the pad */
++#define WDP_AXIS_SOURCE_CONTINUOUS 2u
++
++/* Touchpad swipes (libinput's gesture semantics): BEGIN once 3+ fingers move together, UPDATEs with
++ * the motion of their centre, END when fingers lift (cancelled = 1 when a finger was added instead).
++ * Added without a version bump: older compositors skip these types. */
++struct wdp_swipe_begin {
++    uint32_t time_ms;
++    uint32_t fingers;
++};
++
++struct wdp_swipe_update {
++    uint32_t time_ms;
++    uint32_t fingers;
++    double   dx, dy; /* in pointer-motion units (about pixels) */
++};
++
++struct wdp_swipe_end {
++    uint32_t time_ms;
++    uint32_t cancelled;
+ };
+ 
+ struct wdp_focus {

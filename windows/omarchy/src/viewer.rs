@@ -12,6 +12,8 @@
 
 use crate::keymap;
 use crate::net::Conn;
+use crate::touchpad;
+use std::cell::RefCell;
 use crate::wdp::{self, Reader};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
@@ -174,6 +176,7 @@ pub fn create_windows(monitors: &[wdp::Monitor], windowed: bool) {
         if let Some(first) = surfaces().first() {
             let _ = SetForegroundWindow(hwnd(first.hwnd));
         }
+        touchpad::raw::register();
     }
 }
 
@@ -410,6 +413,50 @@ unsafe fn pointer_moved(h: HWND, lparam: LPARAM) {
     send(wdp::pointer_abs_frame(now_ms(), surface.output_id, lx, ly));
 }
 
+struct TouchpadState {
+    scroll: touchpad::Scroll,
+    swipes: touchpad::Swipes,
+}
+
+thread_local! {
+    // UI thread only (wndproc)
+    static TOUCHPAD: RefCell<TouchpadState> =
+        RefCell::new(TouchpadState { scroll: touchpad::Scroll::default(), swipes: touchpad::Swipes::default() });
+}
+
+fn send_axis(a: touchpad::Axis) {
+    send(wdp::pointer_axis(now_ms(), a.axis, a.delta, a.discrete120, a.source));
+}
+
+fn send_swipe(e: touchpad::SwipeEvent) {
+    send(match e {
+        touchpad::SwipeEvent::Begin(f) => wdp::swipe_begin(now_ms(), f),
+        touchpad::SwipeEvent::Update(f, dx, dy) => wdp::swipe_update(now_ms(), f, dx, dy),
+        touchpad::SwipeEvent::End { cancelled } => wdp::swipe_end(now_ms(), cancelled),
+    });
+}
+
+/// WM_INPUT from a precision touchpad (see touchpad.rs).
+fn touchpad_input(lparam: LPARAM) {
+    for scan in touchpad::raw::read(lparam) {
+        let (stops, swipes) = TOUCHPAD.with(|t| {
+            let mut t = t.borrow_mut();
+            (t.scroll.fingers(scan.len() as u32), t.swipes.scan(&scan))
+        });
+        stops.into_iter().for_each(send_axis);
+        swipes.into_iter().for_each(send_swipe);
+    }
+}
+
+fn touchpad_reset() {
+    let (stops, swipe) = TOUCHPAD.with(|t| {
+        let mut t = t.borrow_mut();
+        (t.scroll.reset(), t.swipes.reset())
+    });
+    stops.into_iter().for_each(send_axis);
+    swipe.into_iter().for_each(send_swipe);
+}
+
 fn button(h: HWND, btn: u32, pressed: bool) {
     let bit = 1u32 << (btn - keymap::BTN_LEFT).min(31);
     unsafe {
@@ -467,8 +514,14 @@ unsafe extern "system" fn wndproc(h: HWND, msg: u32, wparam: WPARAM, lparam: LPA
         WM_MOUSEWHEEL | WM_MOUSEHWHEEL => {
             let delta = ((wparam.0 >> 16) & 0xFFFF) as i16 as i32;
             let (axis, d120) = if msg == WM_MOUSEWHEEL { (0, -delta) } else { (1, delta) };
-            send(wdp::pointer_axis(now_ms(), axis, d120 as f64 / 120.0 * 15.0, d120));
+            if let Some(a) = TOUCHPAD.with(|t| t.borrow_mut().scroll.wheel(now_ms(), axis, d120)) {
+                send_axis(a);
+            }
             LRESULT(0)
+        }
+        WM_INPUT => {
+            touchpad_input(lparam);
+            DefWindowProcW(h, msg, wparam, lparam)
         }
         WM_SETCURSOR => {
             if (lparam.0 & 0xFFFF) as u32 == HTCLIENT {
@@ -493,6 +546,7 @@ unsafe extern "system" fn wndproc(h: HWND, msg: u32, wparam: WPARAM, lparam: LPA
             if !is_ours(HWND(lparam.0 as *mut _)) {
                 if !active {
                     release_all_keys();
+                    touchpad_reset();
                 }
                 send(wdp::focus(active));
             }

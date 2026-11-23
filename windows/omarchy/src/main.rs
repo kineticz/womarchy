@@ -27,6 +27,7 @@ mod media;
 mod monitors;
 mod net;
 mod script;
+mod touchpad;
 mod viewer;
 mod wdp;
 

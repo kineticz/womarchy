@@ -6,12 +6,10 @@
 # the 60-womarchy-gpu user environment generator, i.e. from the user manager's
 # environment, which uwsm starts from.
 
-# Audio: WSL points PULSE_SERVER at WSLg's server. Inside the desktop, go through
-# PipeWire instead (it tunnels to WSLg), so pactl/wpctl, the Quickshell audio
-# panel and apps all share one graph and one volume.
-if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
-  export PULSE_SERVER="unix:${XDG_RUNTIME_DIR}/pulse/native"
-fi
+# Ignore WSL's PULSE_SERVER so clients use the default local PipeWire socket
+# ($XDG_RUNTIME_DIR/pulse/native). WebKitGTK 2.54.1 aborts when its sandbox
+# parses an explicit unix: address; without it, WebKit binds the default socket.
+unset PULSE_SERVER
 
 # WSL fallbacks for tools of hardware WSL lacks (e.g. nm-online, so Omarchy's
 # first run does not ask to set up Wi-Fi). Appended: real tools always win.

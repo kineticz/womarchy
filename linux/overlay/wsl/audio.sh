@@ -7,8 +7,8 @@
 # (RDP audio to Windows). Keep Omarchy's PipeWire + WirePlumber stack and give
 # it a pulse-tunnel sink and source to that server, so pactl/wpctl/pamixer, the
 # Quickshell audio panel and every app share one graph whose output is Windows.
-# Inside the Hyprland session PULSE_SERVER must point at pipewire-pulse, not at
-# WSLg directly (the user overlay's uwsm env does that).
+# Inside the Hyprland session the user overlay unsets WSL's PULSE_SERVER so
+# clients use pipewire-pulse's default socket instead of bypassing it for WSLg.
 set -euo pipefail
 
 install -d -m 0755 /etc/pipewire/pipewire.conf.d

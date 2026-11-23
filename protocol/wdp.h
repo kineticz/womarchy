@@ -67,6 +67,9 @@
 #define WDP_POINTER_AXIS   14u /* wdp_pointer_axis */
 #define WDP_POINTER_FRAME  15u /* no payload: groups the preceding pointer events */
 #define WDP_FOCUS          16u /* wdp_focus: the viewer gained/lost keyboard focus */
+#define WDP_SWIPE_BEGIN    17u /* wdp_swipe_begin: a touchpad swipe with 3+ fingers started */
+#define WDP_SWIPE_UPDATE   18u /* wdp_swipe_update */
+#define WDP_SWIPE_END      19u /* wdp_swipe_end */
 #define WDP_QUIT           20u /* wdp_quit: the user closed the viewer; end the session */
 
 /* message types: compositor -> viewer */
@@ -161,6 +164,31 @@ struct wdp_pointer_axis {
     uint32_t axis;        /* 0 = vertical, 1 = horizontal */
     double   delta;       /* logical scroll distance (positive = down/right) */
     int32_t  discrete120; /* wheel clicks * 120 (WHEEL_DELTA units), 0 for smooth scrolling */
+    uint32_t source;      /* WDP_AXIS_SOURCE_*; appended later: when missing, WHEEL if discrete120 != 0,
+                             else CONTINUOUS. FINGER with delta 0 means the fingers left the touchpad. */
+};
+
+#define WDP_AXIS_SOURCE_WHEEL      0u
+#define WDP_AXIS_SOURCE_FINGER     1u /* touchpad scrolling while fingers are on the pad */
+#define WDP_AXIS_SOURCE_CONTINUOUS 2u
+
+/* Touchpad swipes (libinput's gesture semantics): BEGIN once 3+ fingers move together, UPDATEs with
+ * the motion of their centre, END when fingers lift (cancelled = 1 when a finger was added instead).
+ * Added without a version bump: older compositors skip these types. */
+struct wdp_swipe_begin {
+    uint32_t time_ms;
+    uint32_t fingers;
+};
+
+struct wdp_swipe_update {
+    uint32_t time_ms;
+    uint32_t fingers;
+    double   dx, dy; /* in pointer-motion units (about pixels) */
+};
+
+struct wdp_swipe_end {
+    uint32_t time_ms;
+    uint32_t cancelled;
 };
 
 struct wdp_focus {
